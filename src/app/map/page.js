@@ -304,7 +304,26 @@ export default function WorldMap() {
             [((750 / 1000) * 360 - 180), -((250 / 1000) * 180 - 90)]  // North East
           ]}
           mapStyle={MAP_STYLE}
-          interactiveLayerIds={["town-points", "islands-points", "rocks-points", "empty-slots-points"]}
+          onLoad={(e) => {
+            const map = e.target;
+            const loadImg = (id, url) => {
+              if (!map.hasImage(id)) {
+                map.loadImage(url, (err, img) => {
+                  if (!err && img && !map.hasImage(id)) {
+                    map.addImage(id, img);
+                  }
+                });
+              }
+            };
+            loadImg('town_5', '/map/towns/town_5.png');
+            loadImg('town_4', '/map/towns/town_5.png');
+            loadImg('town_3', '/map/towns/town_3.png');
+            loadImg('town_2', '/map/towns/town_3.png');
+            loadImg('town_1', '/map/towns/town_1.png');
+            loadImg('empty_slot', '/map/slots/empty_slot.png');
+            loadImg('island1', '/map/islands/island1.png');
+          }}
+          interactiveLayerIds={["town-points", "town-sprites", "islands-points", "rocks-points", "empty-slots-points", "empty-slots-sprites"]}
           onMouseEnter={(e) => {
             mapRef.current.getCanvas().style.cursor = "pointer";
           }}
@@ -446,76 +465,94 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Empty Slots Layer (Only visible when zoomed in >= 6) */}
+          {/* Empty Slots Layer */}
           {emptySlotsData && (
             <Source id="empty-slots-source" type="geojson" data={emptySlotsData}>
               <Layer 
                 id="empty-slots-points"
                 type="circle"
-                minzoom={6}
+                minzoom={5.5}
+                maxzoom={8}
                 paint={{
-                  "circle-radius": 3,
+                  "circle-radius": 2.5,
                   "circle-color": "#ffffff",
-                  "circle-opacity": 0.3,
+                  "circle-opacity": 0.4,
                   "circle-stroke-width": 1,
-                  "circle-stroke-color": "#ffffff",
-                  "circle-stroke-opacity": 0.5
+                  "circle-stroke-color": "#94a3b8",
+                  "circle-stroke-opacity": 0.6
+                }}
+              />
+              <Layer
+                id="empty-slots-sprites"
+                type="symbol"
+                minzoom={7.5}
+                layout={{
+                  "icon-image": "empty_slot",
+                  "icon-size": [
+                    "interpolate", ["linear"], ["zoom"],
+                    7.5, 0.05,
+                    9, 0.11,
+                    11, 0.22,
+                    14, 0.45
+                  ],
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                  "icon-anchor": "center"
                 }}
               />
             </Source>
           )}
 
-          {/* Towns Layer (Always visible, but clustered at low zoom) */}
+          {/* Towns Layer (Always visible, clustered at low zoom, stages & 3D sprites at high zoom) */}
           {townsData && (
-            <Source id="towns-source" type="geojson" data={townsData} cluster={true} clusterMaxZoom={5} clusterRadius={50}>
-              {/* Clustered Heatmap/Bubbles */}
+            <Source id="towns-source" type="geojson" data={townsData} cluster={true} clusterMaxZoom={5} clusterRadius={45}>
+              {/* Clustered Bubbles at Macro Zoom */}
               <Layer 
                 id="clusters"
                 type="circle"
-                minzoom={6}
+                minzoom={2}
+                maxzoom={6}
                 filter={["has", "point_count"]}
                 paint={{
                   "circle-color": [
                     "step",
                     ["get", "point_count"],
-                    "#3b82f6", // Blue for small
-                    50,
-                    "#8b5cf6", // Purple for medium
-                    200,
-                    "#ec4899"  // Pink for massive
+                    "#3b82f6",
+                    30, "#8b5cf6",
+                    100, "#ec4899"
                   ],
                   "circle-radius": [
                     "step",
                     ["get", "point_count"],
-                    15,
-                    50,
-                    20,
-                    200,
-                    30
+                    14,
+                    30, 18,
+                    100, 24
                   ],
-                  "circle-opacity": 0.8
+                  "circle-opacity": 0.85
                 }}
               />
               <Layer 
                 id="cluster-count"
                 type="symbol"
-                minzoom={6}
+                minzoom={2}
+                maxzoom={6}
                 filter={["has", "point_count"]}
                 layout={{
                   "text-field": "{point_count_abbreviated}",
                   "text-font": ["Noto Sans Regular"],
-                  "text-size": 12
+                  "text-size": 11
                 }}
                 paint={{
                   "text-color": "#ffffff"
                 }}
               />
 
-              {/* Unclustered Points (Towns) */}
+              {/* Unclustered Points sized by Town Stage (Zoom 4 to 8) */}
               <Layer 
                 id="town-points"
                 type="circle"
-                minzoom={6}
+                minzoom={4}
+                maxzoom={8}
                 filter={["!", ["has", "point_count"]]}
                 paint={{
                   "circle-color": [
@@ -525,12 +562,63 @@ export default function WorldMap() {
                   ],
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
-                    6, ["case", ["has", "highlightColor"], 5, 3],
-                    8, ["case", ["has", "highlightColor"], 12, 8]
+                    4, ["case", ["has", "highlightColor"], 4, ["+", 1.5, ["*", ["coalesce", ["get", "stage"], 1], 0.4]]],
+                    6, ["case", ["has", "highlightColor"], 7, ["+", 2.5, ["*", ["coalesce", ["get", "stage"], 1], 0.8]]],
+                    8, ["case", ["has", "highlightColor"], 14, ["+", 4, ["*", ["coalesce", ["get", "stage"], 1], 1.5]]]
                   ],
-                  "circle-opacity": 1,
+                  "circle-opacity": 0.9,
                   "circle-stroke-width": ["case", ["has", "highlightColor"], 2, 1],
-                  "circle-stroke-color": ["case", ["has", "highlightColor"], "#ffffff", "#000000"]
+                  "circle-stroke-color": ["case", ["has", "highlightColor"], "#ffffff", "#0b101e"]
+                }}
+              />
+
+              {/* High-Resolution 3D Town Sprites (Zoom >= 7.5) */}
+              <Layer
+                id="town-sprites"
+                type="symbol"
+                minzoom={7.5}
+                filter={["!", ["has", "point_count"]]}
+                layout={{
+                  "icon-image": [
+                    "match", ["get", "stage"],
+                    5, "town_5",
+                    4, "town_4",
+                    3, "town_3",
+                    2, "town_2",
+                    1, "town_1",
+                    "town_1"
+                  ],
+                  "icon-size": [
+                    "interpolate", ["linear"], ["zoom"],
+                    7.5, 0.08,
+                    9, 0.16,
+                    11, 0.32,
+                    14, 0.65
+                  ],
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                  "icon-anchor": "bottom"
+                }}
+              />
+
+              {/* Town Name & Stage Labels (Zoom >= 9) */}
+              <Layer
+                id="town-labels"
+                type="symbol"
+                minzoom={9}
+                filter={["!", ["has", "point_count"]]}
+                layout={{
+                  "text-field": ["get", "name"],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": 11,
+                  "text-offset": [0, 0.8],
+                  "text-anchor": "top",
+                  "text-optional": true
+                }}
+                paint={{
+                  "text-color": "#ffffff",
+                  "text-halo-color": "#0b101e",
+                  "text-halo-width": 2
                 }}
               />
             </Source>
@@ -544,37 +632,61 @@ export default function WorldMap() {
               closeButton={false}
               closeOnClick={false}
               anchor="bottom"
-              offset={10}
+              offset={14}
             >
-              <div className="glass-panel" style={{ padding: '1rem', minWidth: '200px' }}>
+              <div className="glass-panel" style={{ padding: '1rem', minWidth: '220px', borderRadius: '8px' }}>
                 {hoverInfo.feature.properties.renderType === 'town' && (
                   <>
-                    <div style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '0.25rem' }}>{hoverInfo.feature.properties.name}</div>
-                    <div className="text-secondary">Player: <span style={{ color: 'white' }}>{hoverInfo.feature.properties.player}</span></div>
-                    <div className="text-secondary">Alliance: <span style={{ color: 'white' }}>{hoverInfo.feature.properties.alliance}</span></div>
-                    <div style={{ color: '#10b981', fontFamily: 'monospace', marginTop: '0.5rem', fontWeight: 'bold' }}>{hoverInfo.feature.properties.points.toLocaleString()} pts</div>
+                    <div className="flex items-center justify-between gap-2" style={{ marginBottom: '0.35rem' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '1.05rem', color: '#f8fafc' }}>{hoverInfo.feature.properties.name}</div>
+                      <span style={{ 
+                        fontSize: '0.68rem', 
+                        padding: '2px 6px', 
+                        borderRadius: '4px', 
+                        backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+                        color: '#60a5fa', 
+                        fontWeight: 'bold',
+                        border: '1px solid rgba(59, 130, 246, 0.4)'
+                      }}>
+                        {['', 'Stage 1 • Hamlet', 'Stage 2 • Village', 'Stage 3 • Town', 'Stage 4 • City', 'Stage 5 • Metropolis'][hoverInfo.feature.properties.stage || 1]}
+                      </span>
+                    </div>
+                    <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Player: <span style={{ color: 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.player}</span></div>
+                    <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Alliance: <span style={{ color: hoverInfo.feature.properties.townColor || 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.alliance}</span></div>
+                    
+                    <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.8rem' }}>
+                      <span style={{ color: '#10b981', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                        {Number(hoverInfo.feature.properties.points).toLocaleString()} pts
+                      </span>
+                      <span style={{ color: '#94a3b8' }}>
+                        Slot #{hoverInfo.feature.properties.islandSlot ?? '0'} ({String(hoverInfo.feature.properties.dir || 'NW').toUpperCase()})
+                      </span>
+                    </div>
                   </>
                 )}
                 {(hoverInfo.feature.properties.renderType === 'island' || hoverInfo.feature.properties.renderType === 'rock') && (
                   <>
-                    <div style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '0.25rem' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '1.05rem', marginBottom: '0.25rem', color: '#f8fafc' }}>
                       {hoverInfo.feature.properties.renderType === 'island' ? 'Island' : 'Rock'} ({hoverInfo.feature.properties.x}, {hoverInfo.feature.properties.y})
                     </div>
                     {hoverInfo.feature.properties.dominantAlliance !== "None" && (
-                      <div className="text-secondary">
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>
                         Dominant: <span style={{color: hoverInfo.feature.properties.islandColor, fontWeight: 'bold'}}>{hoverInfo.feature.properties.dominantAlliance}</span>
                       </div>
                     )}
                     {hoverInfo.feature.properties.renderType === 'island' && (
-                      <div className="text-secondary">Buff: <span style={{ color: 'white' }}>+{hoverInfo.feature.properties.resourcePlus} / -{hoverInfo.feature.properties.resourceMinus}</span></div>
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Buff: <span style={{ color: 'white' }}>+{hoverInfo.feature.properties.resourcePlus} / -{hoverInfo.feature.properties.resourceMinus}</span></div>
                     )}
-                    <div className="text-secondary">Towns: <span style={{ color: 'white' }}>{hoverInfo.feature.properties.colonizedCount} / {hoverInfo.feature.properties.availableTowns}</span></div>
+                    <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Towns: <span style={{ color: 'white' }}>{hoverInfo.feature.properties.colonizedCount} / {hoverInfo.feature.properties.availableTowns}</span></div>
                   </>
                 )}
                 {hoverInfo.feature.properties.renderType === 'empty-slot' && (
                   <>
-                    <div style={{ fontWeight: 'bold', color: '#10b981', fontSize: '1.1rem' }}>Empty Slot</div>
-                    <div className="text-secondary" style={{ fontSize: '0.8rem' }}>Ready for colonization</div>
+                    <div style={{ fontWeight: 'bold', color: '#10b981', fontSize: '1.05rem' }}>Empty Slot</div>
+                    <div className="text-secondary" style={{ fontSize: '0.8rem' }}>
+                      Island ({hoverInfo.feature.properties.islandX}, {hoverInfo.feature.properties.islandY}) • Slot #{hoverInfo.feature.properties.slot}
+                    </div>
+                    <div style={{ color: '#38bdf8', fontSize: '0.75rem', marginTop: '0.25rem' }}>Ready for colonization</div>
                   </>
                 )}
               </div>
