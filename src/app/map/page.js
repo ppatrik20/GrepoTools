@@ -117,8 +117,8 @@ export default function WorldMap() {
       setLoading(true);
       try {
         const [metaRes, geoRes] = await Promise.all([
-          fetch(`/api/world/meta?world=${activeWorldId}`),
-          fetch(`/api/world/geojson?world=${activeWorldId}`)
+          fetch(`/api/world/meta?world=${activeWorldId}&_t=${Date.now()}`),
+          fetch(`/api/world/geojson?world=${activeWorldId}&_t=${Date.now()}`)
         ]);
         
         const meta = await metaRes.json();
@@ -315,15 +315,26 @@ export default function WorldMap() {
                 });
               }
             };
+            // Town Stages & Empty Slots
             loadImg('town_5', '/map/towns/town_5.png');
-            loadImg('town_4', '/map/towns/town_5.png');
+            loadImg('town_4', '/map/towns/town_4.png');
             loadImg('town_3', '/map/towns/town_3.png');
-            loadImg('town_2', '/map/towns/town_3.png');
+            loadImg('town_2', '/map/towns/town_2.png');
             loadImg('town_1', '/map/towns/town_1.png');
             loadImg('empty_slot', '/map/slots/empty_slot.png');
-            loadImg('island1', '/map/islands/island1.png');
+
+            // All 40 Island Types (1-16, 37-60)
+            const islandTypes = [
+              1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+              11, 12, 13, 14, 15, 16,
+              37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+              47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60
+            ];
+            islandTypes.forEach(t => {
+              loadImg(`island_${t}`, `/map/islands/island_${t}.png`);
+            });
           }}
-          interactiveLayerIds={["town-points", "town-sprites", "islands-points", "rocks-points", "empty-slots-points", "empty-slots-sprites"]}
+          interactiveLayerIds={["town-points", "town-sprites", "islands-points", "island-sprites", "rocks-points", "empty-slots-points", "empty-slots-sprites"]}
           onMouseEnter={(e) => {
             mapRef.current.getCanvas().style.cursor = "pointer";
           }}
@@ -422,21 +433,87 @@ export default function WorldMap() {
           {/* Islands Layer */}
           {islandsData && (
             <Source id="islands-source" type="geojson" data={islandsData}>
+              {/* Macro Zoom Island Dots (Zoom 2 to 6.8) */}
               <Layer 
                 id="islands-points"
                 type="circle"
                 minzoom={2}
+                maxzoom={6.8}
                 paint={{
                   "circle-radius": [
-                    "interpolate", ["exponential", 2], ["zoom"],
+                    "interpolate", ["linear"], ["zoom"],
                     2, 3,
-                    6, 16,
-                    20, 262144
+                    5, 8,
+                    6.8, 14
                   ],
                   "circle-color": ["get", "islandColor"],
-                  "circle-opacity": 0.35,
-                  "circle-stroke-width": 2,
+                  "circle-opacity": 0.45,
+                  "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#0f172a"
+                }}
+              />
+
+              {/* Tactical Zoom Island Terrain Sprites (Zoom >= 6.2) */}
+              <Layer 
+                id="island-sprites"
+                type="symbol"
+                minzoom={6.2}
+                layout={{
+                  "icon-image": [
+                    "match", ["get", "islandType"],
+                    1, "island_1",
+                    2, "island_2",
+                    3, "island_3",
+                    4, "island_4",
+                    5, "island_5",
+                    6, "island_6",
+                    7, "island_7",
+                    8, "island_8",
+                    9, "island_9",
+                    10, "island_10",
+                    11, "island_11",
+                    12, "island_12",
+                    13, "island_13",
+                    14, "island_14",
+                    15, "island_15",
+                    16, "island_16",
+                    37, "island_37",
+                    38, "island_38",
+                    39, "island_39",
+                    40, "island_40",
+                    41, "island_41",
+                    42, "island_42",
+                    43, "island_43",
+                    44, "island_44",
+                    45, "island_45",
+                    46, "island_46",
+                    47, "island_47",
+                    48, "island_48",
+                    49, "island_49",
+                    50, "island_50",
+                    51, "island_51",
+                    52, "island_52",
+                    53, "island_53",
+                    54, "island_54",
+                    55, "island_55",
+                    56, "island_56",
+                    57, "island_57",
+                    58, "island_58",
+                    59, "island_59",
+                    60, "island_60",
+                    "island_1"
+                  ],
+                  "icon-size": [
+                    "interpolate", ["linear"], ["zoom"],
+                    6.2, 0.12,
+                    7.5, 0.32,
+                    9, 0.75,
+                    11, 1.6,
+                    13, 3.4
+                  ],
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                  "icon-anchor": "center"
                 }}
               />
             </Source>
@@ -449,12 +526,13 @@ export default function WorldMap() {
                 id="rocks-points"
                 type="circle"
                 minzoom={2}
+                maxzoom={7.5}
                 paint={{
                   "circle-radius": [
-                    "interpolate", ["exponential", 2], ["zoom"],
-                    2, 1,
-                    6, 10,
-                    20, 163840
+                    "interpolate", ["linear"], ["zoom"],
+                    2, 1.5,
+                    6, 6,
+                    7.5, 10
                   ],
                   "circle-color": ["get", "islandColor"],
                   "circle-opacity": 0.4,
