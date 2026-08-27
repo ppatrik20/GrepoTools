@@ -5,14 +5,15 @@ import Map, { Source, Layer, Popup } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { 
-  Menu, X, Search, Map as MapIcon, Globe, MapPin, 
-  Trophy, Users, Loader2, Navigation, Target, Activity, Swords 
+  Menu, X, MapPin, Trophy, Users, Loader2, Navigation, Compass,
+  Ghost, Layers, Sliders, Sparkles
 } from 'lucide-react';
 import IslandModal from "@/components/IslandModal";
 import DeepDiveModal from "@/components/DeepDiveModal";
+import UnifiedSearchPanel from "@/components/map/UnifiedSearchPanel";
+import CommandDrawer from "@/components/map/CommandDrawer";
+import RoutePlannerTool from "@/components/map/RoutePlannerTool";
 import { useApp } from "@/context/AppContext";
-
-// Direct binary fetch, no geographic calculations needed on client!
 
 const MAP_STYLE = {
   version: 8,
@@ -26,6 +27,13 @@ const MAP_STYLE = {
     }
   ]
 };
+
+const ALL_ISLAND_TYPES = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  11, 12, 13, 14, 15, 16,
+  37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+  47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60
+];
 
 function generateOceanGrid() {
   const features = [];
@@ -54,7 +62,6 @@ function generateOceanGrid() {
     });
   }
 
-  // Place Ocean labels uniformly across the ocean grid
   for (let ox = 0; ox < 10; ox++) {
     for (let oy = 0; oy < 10; oy++) {
       const offsets = [10, 30, 50, 70, 90];
@@ -84,32 +91,29 @@ export default function WorldMap() {
   const [data, setData] = useState(null);
   const [topAlliances, setTopAlliances] = useState([]);
   const [topPlayers, setTopPlayers] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [mapProcessing, setMapProcessing] = useState(true);
   const [hoverInfo, setHoverInfo] = useState(null);
   const [worldStats, setWorldStats] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [cursorGrid, setCursorGrid] = useState(null);
-  const [jumpX, setJumpX] = useState("");
-  const [jumpY, setJumpY] = useState("");
   const [customColors, setCustomColors] = useState({});
-  const [selectedIsland, setSelectedIsland] = useState(null);
   const [highlightedPlayers, setHighlightedPlayers] = useState({});
   const [highlightedAlliances, setHighlightedAlliances] = useState({});
-  const [manualHighlightInput, setManualHighlightInput] = useState("");
   const [selectedEntity, setSelectedEntity] = useState(null);
+  const [expandedModalEntity, setExpandedModalEntity] = useState(null);
+  
+  // Interactive filters
+  const [showGhostsOnly, setShowGhostsOnly] = useState(false);
+  const [showEmptySlots, setShowEmptySlots] = useState(true);
+  const [isRouteToolActive, setIsRouteToolActive] = useState(false);
+  const [routeOrigin, setRouteOrigin] = useState(null);
+  const [routeTarget, setRouteTarget] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   const mapRef = useRef();
   const rafRef = useRef(null);
   const oceanGrid = useMemo(() => generateOceanGrid(), []);
-  
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [searchQuery]);
 
   useEffect(() => {
     async function loadData() {
@@ -131,7 +135,6 @@ export default function WorldMap() {
 
         setData(geojson);
         setLoading(false);
-
       } catch (error) {
         console.error("Map load error:", error);
         setLoading(false);
@@ -141,11 +144,11 @@ export default function WorldMap() {
     loadData();
   }, [activeWorldId]);
 
+  // Islands feature collection
   const islandsData = useMemo(() => {
     if (!data || !data.features) return null;
     let features = data.features.filter(f => f.properties.renderType === 'island');
     
-    // Apply custom colors if present
     if (Object.keys(customColors).length > 0) {
       features = features.map(f => {
         const ally = f.properties.dominantAlliance;
@@ -159,7 +162,6 @@ export default function WorldMap() {
       });
     }
 
-    // Sort so empty dark islands render FIRST, colored inhabited islands render ON TOP
     features.sort((a, b) => {
       const aEmpty = a.properties.islandColor === "#1e293b";
       const bEmpty = b.properties.islandColor === "#1e293b";
@@ -179,17 +181,21 @@ export default function WorldMap() {
   }, [data]);
 
   const emptySlotsData = useMemo(() => {
-    if (!data || !data.features) return null;
+    if (!data || !data.features || !showEmptySlots) return null;
     return { 
       type: 'FeatureCollection', 
       features: data.features.filter(f => f.properties.renderType === 'empty-slot') 
     };
-  }, [data]);
+  }, [data, showEmptySlots]);
 
   const townsData = useMemo(() => {
     if (!data || !data.features) return null;
     let towns = data.features.filter(f => f.properties.renderType === 'town');
     
+    if (showGhostsOnly) {
+      towns = towns.filter(t => t.properties.isGhost || !t.properties.player || t.properties.player === 'Ghost Town');
+    }
+
     // Apply highlights
     if (Object.keys(highlightedPlayers).length > 0 || Object.keys(highlightedAlliances).length > 0) {
       towns = towns.map(t => {
@@ -199,7 +205,6 @@ export default function WorldMap() {
         if (highlightedPlayers[pName]) hColor = highlightedPlayers[pName];
         else if (highlightedAlliances[aName]) hColor = highlightedAlliances[aName];
         else if (customColors[aName]) {
-          // If the alliance color was overridden manually, use the override!
           return { ...t, properties: { ...t.properties, townColor: customColors[aName] } };
         }
 
@@ -210,16 +215,6 @@ export default function WorldMap() {
       });
     }
 
-    if (debouncedSearch.trim()) {
-      const lowerQuery = debouncedSearch.toLowerCase();
-      towns = towns.filter(f => 
-        (f.properties.player && f.properties.player.toLowerCase().includes(lowerQuery)) ||
-        (f.properties.alliance && f.properties.alliance.toLowerCase().includes(lowerQuery)) ||
-        (f.properties.name && f.properties.name.toLowerCase().includes(lowerQuery))
-      );
-    }
-    
-    // Sort so highlighted towns render on top
     towns.sort((a, b) => {
       if (a.properties.highlightColor && !b.properties.highlightColor) return 1;
       if (!a.properties.highlightColor && b.properties.highlightColor) return -1;
@@ -227,64 +222,98 @@ export default function WorldMap() {
     });
 
     return { type: 'FeatureCollection', features: towns };
-  }, [data, debouncedSearch, highlightedPlayers, highlightedAlliances]);
+  }, [data, showGhostsOnly, highlightedPlayers, highlightedAlliances, customColors]);
 
-  const searchStats = useMemo(() => {
-    if (!townsData || !debouncedSearch.trim()) return null;
-    const towns = townsData.features;
-    let totalPoints = 0;
-    towns.forEach(t => totalPoints += t.properties.points);
-    return {
-      count: towns.length,
-      points: totalPoints
-    };
-  }, [townsData, debouncedSearch]);
+  // Arcing Naval Route Line
+  const routeLineData = useMemo(() => {
+    if (!routeOrigin || !routeTarget) return null;
+    const ox = routeOrigin.islandX ?? routeOrigin.x ?? 500;
+    const oy = routeOrigin.islandY ?? routeOrigin.y ?? 500;
+    const tx = routeTarget.islandX ?? routeTarget.x ?? 500;
+    const ty = routeTarget.islandY ?? routeTarget.y ?? 500;
 
-  // World Stats comes directly from Meta now
+    const oLng = (ox / 1000) * 360 - 180;
+    const oLat = -((oy / 1000) * 180 - 90);
+    const tLng = (tx / 1000) * 360 - 180;
+    const tLat = -((ty / 1000) * 180 - 90);
 
+    const midLng = (oLng + tLng) / 2;
+    const midLat = (oLat + tLat) / 2 + (Math.abs(tLng - oLng) * 0.12);
 
-  const handleJump = (e) => {
-    e.preventDefault();
-    if (!jumpX || !jumpY) return;
-    const x = parseInt(jumpX);
-    const y = parseInt(jumpY);
-    if (isNaN(x) || isNaN(y)) return;
-    if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: [((x / 1000) * 360 - 180), -((y / 1000) * 180 - 90)],
-        zoom: 6,
-        duration: 1000
-      });
+    const points = [];
+    const steps = 40;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const curLng = (1 - t) * (1 - t) * oLng + 2 * (1 - t) * t * midLng + t * t * tLng;
+      const curLat = (1 - t) * (1 - t) * oLat + 2 * (1 - t) * t * midLat + t * t * tLat;
+      points.push([curLng, curLat]);
     }
-  };
 
-  const handleFitBounds = () => {
-    if (!townsData || townsData.features.length === 0 || !mapRef.current) return;
-    let minLng = 180, maxLng = -180, minLat = 90, maxLat = -90;
-    townsData.features.forEach(f => {
-      const [lng, lat] = f.geometry.coordinates;
-      if (lng < minLng) minLng = lng;
-      if (lng > maxLng) maxLng = lng;
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
+    return {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "LineString", coordinates: points }
+        }
+      ]
+    };
+  }, [routeOrigin, routeTarget]);
+
+  // Search Jump / Selection handler
+  const handleSelectSearchResult = (type, item) => {
+    if (!mapRef.current) return;
+    
+    let targetLng = 0, targetLat = 0;
+
+    if (type === 'island') {
+      targetLng = (item.x / 1000) * 360 - 180;
+      targetLat = -((item.y / 1000) * 180 - 90);
+      setSelectedEntity({ type: 'island', data: item });
+    } else if (type === 'town') {
+      targetLng = (item.islandX / 1000) * 360 - 180;
+      targetLat = -((item.islandY / 1000) * 180 - 90);
+      setSelectedEntity({ type: 'town', data: item });
+    } else if (type === 'player') {
+      setSelectedEntity({ type: 'player', data: item });
+      setHighlightedPlayers({ [item.name]: '#f59e0b' });
+      return;
+    } else if (type === 'alliance') {
+      setSelectedEntity({ type: 'alliance', data: item });
+      setHighlightedAlliances({ [item.name]: '#8b5cf6' });
+      return;
+    }
+
+    mapRef.current.flyTo({
+      center: [targetLng, targetLat],
+      zoom: 9.5,
+      duration: 1200,
+      essential: true
     });
-    minLng -= 0.5; maxLng += 0.5;
-    minLat -= 0.5; maxLat += 0.5;
-    mapRef.current.fitBounds(
-      [[minLng, minLat], [maxLng, maxLat]], 
-      { padding: 50, duration: 1000 }
-    );
   };
 
   return (
     <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, backgroundColor: '#0b101e', zIndex: 10 }}>
+      {/* Top Floating Unified Search & Action Bar */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center">
+        <UnifiedSearchPanel
+          worldId={activeWorldId}
+          onSelectResult={handleSelectSearchResult}
+          onToggleGhosts={() => setShowGhostsOnly(prev => !prev)}
+          showGhostsOnly={showGhostsOnly}
+          onToggleRouteTool={() => setIsRouteToolActive(prev => !prev)}
+          isRouteToolActive={isRouteToolActive}
+          onToggleEmptySlots={() => setShowEmptySlots(prev => !prev)}
+          showEmptySlots={showEmptySlots}
+        />
+      </div>
 
       <div style={{ width: '100%', height: '100%', position: 'relative', zIndex: 0 }}>
         {loading && (
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(11, 16, 30, 0.9)', backdropFilter: 'blur(4px)' }}>
             <div className="flex flex-col items-center gap-4">
               <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'white', letterSpacing: '2px', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}>
-                {loading ? "Downloading World Data..." : "Rendering Battle Map..."}
+                Downloading World Data...
               </div>
             </div>
           </div>
@@ -294,52 +323,68 @@ export default function WorldMap() {
           ref={mapRef}
           mapLibre={maplibregl}
           style={{ width: "100%", height: "100%", position: "absolute", left: 0, top: 0 }}
-          initialViewState={{
-            longitude: 0,
-            latitude: 0,
-            zoom: 2
-          }}
+          initialViewState={{ longitude: 0, latitude: 0, zoom: 2 }}
           maxBounds={[
-            [((250 / 1000) * 360 - 180), -((750 / 1000) * 180 - 90)], // South West
-            [((750 / 1000) * 360 - 180), -((250 / 1000) * 180 - 90)]  // North East
+            [((250 / 1000) * 360 - 180), -((750 / 1000) * 180 - 90)],
+            [((750 / 1000) * 360 - 180), -((250 / 1000) * 180 - 90)]
           ]}
           mapStyle={MAP_STYLE}
           onLoad={(e) => {
-            const map = e.target;
-            const loadImg = (id, url) => {
-              if (!map.hasImage(id)) {
-                map.loadImage(url, (err, img) => {
-                  if (!err && img && !map.hasImage(id)) {
-                    map.addImage(id, img);
+            const mapInstance = e.target.getMap ? e.target.getMap() : e.target;
+            
+            // Dynamic on-demand style image loader to prevent any missing image warning
+            mapInstance.on('styleimagemissing', (ev) => {
+              const id = ev.id;
+              let url = null;
+              if (id.startsWith('island_')) {
+                url = `/map/islands/${id}.png`;
+              } else if (id.startsWith('town_')) {
+                url = `/map/towns/${id}.png`;
+              } else if (id === 'empty_slot') {
+                url = `/map/slots/empty_slot.png`;
+              }
+              
+              if (url && !mapInstance.hasImage(id)) {
+                mapInstance.loadImage(url, (err, img) => {
+                  if (!err && img && !mapInstance.hasImage(id)) {
+                    mapInstance.addImage(id, img);
+                  }
+                });
+              }
+            });
+
+            // Preload core assets
+            const preloadImg = (id, url) => {
+              if (!mapInstance.hasImage(id)) {
+                mapInstance.loadImage(url, (err, img) => {
+                  if (!err && img && !mapInstance.hasImage(id)) {
+                    mapInstance.addImage(id, img);
                   }
                 });
               }
             };
-            // Town Stages & Empty Slots
-            loadImg('town_5', '/map/towns/town_5.png');
-            loadImg('town_4', '/map/towns/town_4.png');
-            loadImg('town_3', '/map/towns/town_3.png');
-            loadImg('town_2', '/map/towns/town_2.png');
-            loadImg('town_1', '/map/towns/town_1.png');
-            loadImg('empty_slot', '/map/slots/empty_slot.png');
 
-            // All 40 Island Types (1-16, 37-60)
-            const islandTypes = [
-              1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-              11, 12, 13, 14, 15, 16,
-              37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
-              47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60
-            ];
-            islandTypes.forEach(t => {
-              loadImg(`island_${t}`, `/map/islands/island_${t}.png`);
+            preloadImg('town_5', '/map/towns/town_5.png');
+            preloadImg('town_4', '/map/towns/town_4.png');
+            preloadImg('town_3', '/map/towns/town_3.png');
+            preloadImg('town_2', '/map/towns/town_2.png');
+            preloadImg('town_1', '/map/towns/town_1.png');
+            preloadImg('empty_slot', '/map/slots/empty_slot.png');
+
+            ALL_ISLAND_TYPES.forEach(t => {
+              preloadImg(`island_${t}`, `/map/islands/island_${t}.png`);
             });
           }}
-          interactiveLayerIds={["town-points", "town-sprites", "islands-points", "island-sprites", "rocks-points", "empty-slots-points", "empty-slots-sprites"]}
-          onMouseEnter={(e) => {
-            mapRef.current.getCanvas().style.cursor = "pointer";
+          interactiveLayerIds={[
+            "town-points", "town-sprites", "town-flags", 
+            "islands-points", "island-sprites", "rocks-points", 
+            "empty-slots-points", "empty-slots-sprites"
+          ]}
+          onMouseEnter={() => {
+            if (mapRef.current) mapRef.current.getCanvas().style.cursor = "pointer";
           }}
           onMouseLeave={() => {
-            mapRef.current.getCanvas().style.cursor = "";
+            if (mapRef.current) mapRef.current.getCanvas().style.cursor = "";
             setHoverInfo(null);
           }}
           onMouseMove={(e) => {
@@ -357,12 +402,7 @@ export default function WorldMap() {
               setCursorGrid({ x: gridX, y: gridY });
 
               if (features && features.length > 0) {
-                setHoverInfo({
-                  feature: features[0],
-                  x: pointX,
-                  y: pointY,
-                  lngLat: lngLat
-                });
+                setHoverInfo({ feature: features[0], x: pointX, y: pointY, lngLat: lngLat });
               } else {
                 setHoverInfo(null);
               }
@@ -371,37 +411,51 @@ export default function WorldMap() {
           onClick={(e) => {
             if (e.features && e.features.length > 0) {
               const feature = e.features[0];
-              if (feature.properties.renderType === 'island' || feature.properties.renderType === 'rock') {
-                setSelectedIsland({
-                  id: feature.properties.id,
-                  x: feature.properties.x,
-                  y: feature.properties.y,
-                  availableTowns: feature.properties.availableTowns,
-                  colonizedCount: feature.properties.colonizedCount,
-                  resourcePlus: feature.properties.resourcePlus,
-                  resourceMinus: feature.properties.resourceMinus
-                });
-              } else if (feature.properties.renderType === 'town') {
+              const p = feature.properties;
+              
+              if (p.renderType === 'island' || p.renderType === 'rock') {
                 setSelectedEntity({
-                  type: 'town',
+                  type: 'island',
                   data: {
-                    id: feature.properties.id,
-                    name: feature.properties.name,
-                    player: feature.properties.player,
-                    alliance: feature.properties.alliance,
-                    points: feature.properties.points,
-                    islandX: feature.properties.islandX || feature.properties.x,
-                    islandY: feature.properties.islandY || feature.properties.y,
-                    islandSlot: feature.properties.islandSlot
+                    id: p.id,
+                    x: p.x,
+                    y: p.y,
+                    type: p.islandType || p.type,
+                    availableTowns: p.availableTowns,
+                    colonizedCount: p.colonizedCount,
+                    resourcePlus: p.resourcePlus,
+                    resourceMinus: p.resourceMinus
                   }
                 });
+              } else if (p.renderType === 'town') {
+                const townData = {
+                  id: p.id,
+                  name: p.name,
+                  player: p.player,
+                  alliance: p.alliance,
+                  points: p.points,
+                  islandX: p.islandX || p.x,
+                  islandY: p.islandY || p.y,
+                  islandSlot: p.islandSlot
+                };
+                
+                // If route planner tool is open, clicking assigns origin/target
+                if (isRouteToolActive) {
+                  if (!routeOrigin) {
+                    setRouteOrigin(townData);
+                  } else if (!routeTarget && routeOrigin.id !== townData.id) {
+                    setRouteTarget(townData);
+                  } else {
+                    setRouteTarget(townData);
+                  }
+                }
+                
+                setSelectedEntity({ type: 'town', data: townData });
               }
             }
           }}
           onIdle={() => {
-            if (!loading) {
-              setMapProcessing(false);
-            }
+            if (!loading) setMapProcessing(false);
           }}
         >
           {/* Ocean Grid Layer */}
@@ -421,14 +475,37 @@ export default function WorldMap() {
               layout={{
                 "text-field": ["get", "label"],
                 "text-font": ["Noto Sans Regular"],
-                "text-size": 24,
+                "text-size": 22,
                 "text-anchor": "center"
               }}
-              paint={{
-                "text-color": "#334155"
-              }}
+              paint={{ "text-color": "#334155" }}
             />
           </Source>
+
+          {/* Arcing Naval Route Line Layer */}
+          {routeLineData && (
+            <Source id="route-line-source" type="geojson" data={routeLineData}>
+              <Layer
+                id="route-line-glow"
+                type="line"
+                paint={{
+                  "line-color": "#38bdf8",
+                  "line-width": 6,
+                  "line-opacity": 0.4,
+                  "line-blur": 3
+                }}
+              />
+              <Layer
+                id="route-line"
+                type="line"
+                paint={{
+                  "line-color": "#38bdf8",
+                  "line-width": 2.5,
+                  "line-dasharray": [3, 2]
+                }}
+              />
+            </Source>
+          )}
 
           {/* Islands Layer */}
           {islandsData && (
@@ -543,7 +620,7 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Empty Slots Layer */}
+          {/* Empty Colonization Slots Layer */}
           {emptySlotsData && (
             <Source id="empty-slots-source" type="geojson" data={emptySlotsData}>
               <Layer 
@@ -581,7 +658,7 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Towns Layer (Always visible, clustered at low zoom, stages & 3D sprites at high zoom) */}
+          {/* Towns Layer */}
           {townsData && (
             <Source id="towns-source" type="geojson" data={townsData} cluster={true} clusterMaxZoom={5} clusterRadius={45}>
               {/* Clustered Bubbles at Macro Zoom */}
@@ -620,9 +697,7 @@ export default function WorldMap() {
                   "text-font": ["Noto Sans Regular"],
                   "text-size": 11
                 }}
-                paint={{
-                  "text-color": "#ffffff"
-                }}
+                paint={{ "text-color": "#ffffff" }}
               />
 
               {/* Unclustered Points sized by Town Stage (Zoom 4 to 8) */}
@@ -636,7 +711,7 @@ export default function WorldMap() {
                   "circle-color": [
                     "case",
                     ["has", "highlightColor"], ["get", "highlightColor"],
-                    searchQuery ? "#ef4444" : ["get", "townColor"]
+                    ["get", "townColor"]
                   ],
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -679,30 +754,55 @@ export default function WorldMap() {
                 }}
               />
 
-              {/* Town Name & Stage Labels (Zoom >= 9) */}
+              {/* Dynamic Alliance Flag Badge hovering over town (Zoom >= 7.5) */}
+              <Layer
+                id="town-flags"
+                type="circle"
+                minzoom={7.5}
+                filter={["!", ["has", "point_count"]]}
+                paint={{
+                  "circle-color": [
+                    "case",
+                    ["has", "highlightColor"], ["get", "highlightColor"],
+                    ["get", "townColor"]
+                  ],
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    7.5, 4,
+                    9, 6,
+                    11, 8.5,
+                    14, 13
+                  ],
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-translate": [0, -20]
+                }}
+              />
+
+              {/* Town Name Labels (Zoom >= 8.8) */}
               <Layer
                 id="town-labels"
                 type="symbol"
-                minzoom={9}
+                minzoom={8.8}
                 filter={["!", ["has", "point_count"]]}
                 layout={{
                   "text-field": ["get", "name"],
                   "text-font": ["Noto Sans Regular"],
                   "text-size": 11,
-                  "text-offset": [0, 0.8],
-                  "text-anchor": "top",
+                  "text-offset": [0, -2.8],
+                  "text-anchor": "bottom",
                   "text-optional": true
                 }}
                 paint={{
                   "text-color": "#ffffff",
                   "text-halo-color": "#0b101e",
-                  "text-halo-width": 2
+                  "text-halo-width": 2.5
                 }}
               />
             </Source>
           )}
 
-          {/* Tooltip */}
+          {/* Hover Tooltip */}
           {hoverInfo && (
             <Popup
               longitude={hoverInfo.lngLat.lng}
@@ -773,11 +873,51 @@ export default function WorldMap() {
         </Map>
       </div>
 
-      {/* Detailed Island Modal */}
-      {selectedIsland && (
+      {/* Floating Route Planner Tool */}
+      {isRouteToolActive && (
+        <RoutePlannerTool
+          origin={routeOrigin}
+          target={routeTarget}
+          onSwap={() => {
+            const temp = routeOrigin;
+            setRouteOrigin(routeTarget);
+            setRouteTarget(temp);
+          }}
+          onClear={() => {
+            setRouteOrigin(null);
+            setRouteTarget(null);
+          }}
+          onClose={() => setIsRouteToolActive(false)}
+          worldSpeed={activeWorld?.speed || 3}
+          unitSpeed={activeWorld?.unitSpeed || 1}
+        />
+      )}
+
+      {/* Sliding Intelligence Command Drawer */}
+      {selectedEntity && (
+        <CommandDrawer
+          entity={selectedEntity}
+          onClose={() => setSelectedEntity(null)}
+          onExpandToModal={(ent) => setExpandedModalEntity(ent)}
+          worldId={activeWorldId}
+          onSelectEntity={(ent) => setSelectedEntity(ent)}
+          onSetRouteOrigin={(town) => {
+            setRouteOrigin(town);
+            setIsRouteToolActive(true);
+          }}
+          onSetRouteTarget={(town) => {
+            setRouteTarget(town);
+            setIsRouteToolActive(true);
+          }}
+          customColors={customColors}
+        />
+      )}
+
+      {/* Full Modal Expand Fallback */}
+      {expandedModalEntity && expandedModalEntity.type === 'island' && (
         <IslandModal 
-          islandData={selectedIsland} 
-          onClose={() => setSelectedIsland(null)} 
+          islandData={expandedModalEntity.data} 
+          onClose={() => setExpandedModalEntity(null)} 
           customColors={customColors}
           worldId={activeWorldId}
           onTownClick={(town) => setSelectedEntity({ type: 'town', data: town })}
@@ -786,242 +926,132 @@ export default function WorldMap() {
         />
       )}
 
-      {/* Deep Dive Modal */}
-      {selectedEntity && (
+      {expandedModalEntity && expandedModalEntity.type !== 'island' && (
         <DeepDiveModal 
-          entity={selectedEntity} 
-          onClose={() => setSelectedEntity(null)} 
+          entity={expandedModalEntity} 
+          onClose={() => setExpandedModalEntity(null)} 
           worldId={activeWorldId}
         />
       )}
 
-      {/* LEFT SIDEBAR (General Info & Legend) */}
-      <div className="glass-panel flex flex-col gap-4" style={{ position: 'absolute', top: '1rem', left: '1rem', zIndex: 50, width: '320px', maxHeight: 'calc(100% - 2rem)', overflowY: 'auto', scrollbarWidth: 'none' }}>
-        
-        {/* Header */}
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0 }} className="gradient-text">
-          World Map Viewer
-        </h1>
-
-
-
-        {/* Top 10 Alliances Legend */}
-        <div className="flex flex-col" style={{ gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'var(--primary)' }}>Top 10 Alliances</h2>
-          <div className="flex flex-col" style={{ gap: '0.25rem' }}>
-            {topAlliances.length > 0 ? topAlliances.map((a) => {
-              const activeColor = customColors[a.name] || a.color;
-              return (
-                <div key={a.name} className="flex items-center justify-between" style={{ fontSize: '0.875rem', padding: '0.25rem', borderRadius: '4px', transition: 'background 0.2s' }}>
-                  <div className="flex gap-2 items-center flex-1">
-                    <button 
-                      onClick={() => setHighlightedAlliances(prev => {
-                        const copy = { ...prev };
-                        if (copy[a.name]) delete copy[a.name];
-                        else copy[a.name] = activeColor;
-                        return copy;
-                      })}
-                      className="cursor-pointer"
-                      aria-label={`Toggle highlight for ${a.name}`}
-                    >
-                      <div 
-                        style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: activeColor, flexShrink: 0 }}
-                        title="Toggle Map Highlight"
-                      />
-                    </button>
-                    <div 
-                      style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} 
-                      onClick={(e) => { e.stopPropagation(); setSelectedEntity({ type: 'alliance', data: a }); }}
-                    >
-                      <div className="font-bold text-white truncate text-sm hover:underline">{a.name}</div>
-                      <div className="text-xs text-secondary truncate">{a.points.toLocaleString()} pts</div>
-                    </div>
-                  </div>
-                  <input 
-                    type="color" 
-                    value={activeColor}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCustomColors(prev => ({...prev, [a.name]: val}));
-                      if (highlightedAlliances[a.name]) {
-                        setHighlightedAlliances(prev => ({...prev, [a.name]: val}));
-                      }
-                    }}
-                    style={{ width: '20px', height: '20px', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
-                  />
-                </div>
-              );
-            }) : (
-              <div className="text-secondary text-sm" style={{ animation: 'pulse 2s infinite' }}>Loading...</div>
-            )}
-          </div>
-        </div>
-
-        {/* World Stats */}
-        <div className="flex flex-col" style={{ gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'var(--primary)' }}>World Overview</h2>
-          {worldStats ? (
-            <div className="flex flex-col" style={{ gap: '0.25rem', fontSize: '0.875rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <div className="flex justify-between"><span className="text-secondary">Players:</span><span style={{ fontWeight: 'bold', color: 'white' }}>{worldStats.players.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Active Towns:</span><span style={{ fontWeight: 'bold', color: 'white' }}>{worldStats.totalTowns.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Pop. Islands:</span><span style={{ fontWeight: 'bold', color: 'white' }}>{worldStats.populatedIslands.toLocaleString()} <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>/ {worldStats.totalIslands.toLocaleString()}</span></span></div>
-            </div>
-          ) : (
-            <div className="text-secondary text-sm" style={{ animation: 'pulse 2s infinite' }}>Loading...</div>
+      {/* LEFT SIDEBAR (Top Alliances & Overview - Collapsible) */}
+      <div 
+        className={`glass-panel flex flex-col gap-3 transition-all duration-300 ${
+          isSidebarCollapsed ? 'w-12 p-2' : 'w-72 p-4'
+        }`}
+        style={{ 
+          position: 'absolute', 
+          top: '1rem', 
+          left: '1rem', 
+          zIndex: 40, 
+          maxHeight: 'calc(100% - 2rem)', 
+          overflowY: 'auto', 
+          scrollbarWidth: 'none',
+          backgroundColor: 'rgba(11, 16, 30, 0.92)'
+        }}
+      >
+        <div className="flex items-center justify-between">
+          {!isSidebarCollapsed && (
+            <h1 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0 }} className="gradient-text">
+              World Overview
+            </h1>
           )}
-        </div>
-
-      </div>
-
-      {/* RIGHT SIDEBAR (Search & Navigation) */}
-      <div className="glass-panel flex flex-col gap-4" style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 50, width: '320px', maxHeight: 'calc(100% - 2rem)', overflowY: 'auto', scrollbarWidth: 'none' }}>
-        
-        {/* Top 10 Players */}
-        <div className="flex flex-col" style={{ gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'var(--primary)' }}>Top 10 Players</h2>
-          <div className="flex flex-col" style={{ gap: '0.25rem' }}>
-            {topPlayers.length > 0 ? topPlayers.map((p) => {
-              const isHighlighted = highlightedPlayers[p.name];
-              const highlightColor = isHighlighted || customColors[p.alliance] || '#3b82f6';
-              return (
-                <div key={p.name} className="flex items-center gap-2" style={{ fontSize: '0.875rem', padding: '0.5rem', borderRadius: '6px', background: isHighlighted ? `rgba(59, 130, 246, 0.1)` : 'rgba(255,255,255,0.03)', border: `1px solid ${isHighlighted ? highlightColor : 'transparent'}`, transition: 'all 0.2s' }}>
-                  <button 
-                    onClick={() => setHighlightedPlayers(prev => {
-                      const copy = { ...prev };
-                      if (copy[p.name]) delete copy[p.name];
-                      else copy[p.name] = highlightColor;
-                      return copy;
-                    })}
-                    className="cursor-pointer"
-                    aria-label={`Toggle highlight for ${p.name}`}
-                  >
-                    <div 
-                      style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: highlightColor, flexShrink: 0 }}
-                      title="Toggle Map Highlight"
-                    />
-                  </button>
-                  <div 
-                    style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEntity({ type: 'player', data: p }); }}
-                  >
-                    <div className="font-bold text-white truncate text-sm hover:underline">{p.name}</div>
-                    <div className="text-xs text-secondary truncate">{p.points.toLocaleString()} pts</div>
-                  </div>
-                </div>
-              );
-            }) : (
-              <div className="text-secondary text-sm" style={{ animation: 'pulse 2s infinite' }}>Loading...</div>
-            )}
-          </div>
-        </div>
-
-        {/* Manual Highlighting */}
-        <div className="flex flex-col" style={{ gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'var(--primary)' }}>Custom Highlights</h2>
-          <form 
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (manualHighlightInput.trim()) {
-                setHighlightedPlayers(prev => ({
-                  ...prev,
-                  [manualHighlightInput.trim()]: '#ef4444' // default red for manual
-                }));
-                setManualHighlightInput("");
-              }
-            }}
-            className="flex" style={{ gap: '0.5rem' }}
+          <button
+            onClick={() => setIsSidebarCollapsed(prev => !prev)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-auto"
+            title={isSidebarCollapsed ? "Expand Overview" : "Collapse Overview"}
           >
-            <input 
-              type="text" 
-              placeholder="Player Name..." 
-              value={manualHighlightInput}
-              onChange={e => setManualHighlightInput(e.target.value)}
-              className="input-field"
-              style={{ flex: 1 }}
-            />
-            <button type="submit" className="btn btn-primary" style={{ padding: '0.25rem 0.5rem' }}>Add</button>
-          </form>
-          
-          {/* Active Manual Highlights */}
-          {Object.entries(highlightedPlayers).length > 0 && (
-            <div className="flex flex-col gap-2 mt-2">
-              {Object.entries(highlightedPlayers).map(([name, color]) => {
-                const isTop10 = topPlayers.some(p => p.name === name);
-                if (isTop10) return null;
-                return (
-                  <div key={name} className="flex items-center justify-between" style={{ fontSize: '0.875rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.03)', border: `1px solid ${color}` }}>
-                    <span style={{ color: 'white', fontWeight: 'bold' }}>{name}</span>
-                    <div className="flex gap-2 items-center">
+            <Layers size={16} />
+          </button>
+        </div>
+
+        {!isSidebarCollapsed && (
+          <>
+            {/* Top 10 Alliances Legend */}
+            <div className="flex flex-col gap-1.5 mt-1">
+              <h2 className="text-xs font-bold text-primary uppercase tracking-wider">Top 10 Alliances</h2>
+              <div className="flex flex-col gap-1">
+                {topAlliances.length > 0 ? topAlliances.slice(0, 8).map((a) => {
+                  const activeColor = customColors[a.name] || a.color;
+                  return (
+                    <div key={a.name} className="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg hover:bg-slate-800/60 transition-colors">
+                      <div className="flex gap-2 items-center flex-1 min-w-0">
+                        <button 
+                          onClick={() => setHighlightedAlliances(prev => {
+                            const copy = { ...prev };
+                            if (copy[a.name]) delete copy[a.name];
+                            else copy[a.name] = activeColor;
+                            return copy;
+                          })}
+                          className="cursor-pointer shrink-0"
+                          aria-label={`Toggle highlight for ${a.name}`}
+                        >
+                          <div 
+                            style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: activeColor }}
+                            title="Toggle Map Highlight"
+                          />
+                        </button>
+                        <div 
+                          style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} 
+                          onClick={() => setSelectedEntity({ type: 'alliance', data: a })}
+                        >
+                          <div className="font-bold text-white truncate text-xs hover:underline">{a.name}</div>
+                          <div className="text-[10px] text-slate-400 truncate">{a.points.toLocaleString()} pts</div>
+                        </div>
+                      </div>
                       <input 
                         type="color" 
-                        value={color}
-                        onChange={(e) => setHighlightedPlayers(prev => ({...prev, [name]: e.target.value}))}
-                        style={{ width: '20px', height: '20px', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                        value={activeColor}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCustomColors(prev => ({...prev, [a.name]: val}));
+                        }}
+                        style={{ width: '18px', height: '18px', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                        title="Customize color"
                       />
-                      <button 
-                        onClick={() => setHighlightedPlayers(prev => {
-                          const next = {...prev};
-                          delete next[name];
-                          return next;
-                        })}
-                        style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}
-                        title="Remove highlight"
-                        aria-label="Remove highlight"
-                      >
-                        ✕
-                      </button>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                }) : (
+                  <div className="text-xs text-secondary">Loading alliances...</div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Search Input */}
-        <div className="flex flex-col" style={{ gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'var(--primary)' }}>Search</h2>
-          <input 
-            type="text" 
-            placeholder="Search Alliance, Player, or Town..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="input-field"
-          />
-        </div>
-
-        {/* Search Stats */}
-        {searchQuery.trim() && searchStats && (
-          <div className="flex flex-col" style={{ gap: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '0.75rem', borderRadius: '8px' }}>
-            <div className="flex justify-between text-sm">
-              <span className="text-secondary">Matches:</span>
-              <span style={{ fontWeight: 'bold' }}>{searchStats.count.toLocaleString()} towns</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-secondary">Points:</span>
-              <span style={{ fontWeight: 'bold', color: '#10b981' }}>{searchStats.points.toLocaleString()}</span>
-            </div>
-            <button onClick={handleFitBounds} className="btn" style={{ marginTop: '0.5rem', width: '100%', background: 'rgba(59, 130, 246, 0.2)', border: '1px solid var(--primary)', padding: '0.25rem', fontSize: '0.875rem', fontWeight: 'bold' }}>
-              Frame on Map
-            </button>
-          </div>
+            {/* World Stats */}
+            {worldStats && (
+              <div className="mt-2 pt-3 border-t border-slate-800 text-xs text-slate-400 space-y-1">
+                <div className="flex justify-between">
+                  <span>Players:</span>
+                  <span className="text-white font-mono">{worldStats.players}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Active Towns:</span>
+                  <span className="text-white font-mono">{worldStats.towns}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Pop. Islands:</span>
+                  <span className="text-white font-mono">{worldStats.populatedIslands} / {worldStats.islands}</span>
+                </div>
+              </div>
+            )}
+          </>
         )}
-
-        {/* Jump & Tracker */}
-        <div className="flex flex-col" style={{ gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'bold', color: 'var(--primary)' }}>Navigation</h2>
-          <div style={{ fontSize: '0.875rem', fontFamily: 'monospace', color: '#cbd5e1', background: 'rgba(0,0,0,0.3)', padding: '0.5rem', borderRadius: '4px' }}>
-            Cursor: {cursorGrid ? `${cursorGrid.x}, ${cursorGrid.y}` : "---, ---"}
-          </div>
-          <form onSubmit={handleJump} className="flex" style={{ gap: '0.5rem', marginTop: '0.25rem' }}>
-            <input type="number" placeholder="X" value={jumpX} onChange={e=>setJumpX(e.target.value)} className="input-field" style={{ width: '60px', padding: '0.25rem 0.5rem' }} />
-            <input type="number" placeholder="Y" value={jumpY} onChange={e=>setJumpY(e.target.value)} className="input-field" style={{ width: '60px', padding: '0.25rem 0.5rem' }} />
-            <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '0.25rem', fontSize: '0.875rem' }}>Jump</button>
-          </form>
-        </div>
-
       </div>
 
+      {/* BOTTOM RIGHT: Coordinates & Sync Indicator */}
+      <div className="absolute bottom-4 right-4 z-40 flex items-center gap-2">
+        {cursorGrid && (
+          <div className="glass-panel px-3 py-1.5 rounded-xl border border-slate-700/80 bg-slate-900/90 text-xs font-mono text-slate-300 shadow-xl">
+            <span className="text-primary font-bold">({cursorGrid.x}, {cursorGrid.y})</span>
+            <span className="text-slate-500 ml-2">O{Math.floor(cursorGrid.x / 100)}{Math.floor(cursorGrid.y / 100)}</span>
+          </div>
+        )}
+        {lastSync && (
+          <div className="glass-panel px-2.5 py-1.5 rounded-xl border border-slate-700/80 bg-slate-900/90 text-[10px] text-slate-400 shadow-xl hidden sm:block">
+            Synced {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
