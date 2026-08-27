@@ -26,6 +26,8 @@ const MYTHICAL_FLYING_UNITS = [
 
 export function calculateDistance(origin, target) {
   if (!origin || !target) return 0;
+  if (origin.id && target.id && origin.id === target.id) return 0;
+
   const ox = Number(origin.islandX ?? origin.x ?? 500);
   const oy = Number(origin.islandY ?? origin.y ?? 500);
   const tx = Number(target.islandX ?? target.x ?? 500);
@@ -33,14 +35,13 @@ export function calculateDistance(origin, target) {
   
   const islandDist = Math.sqrt(Math.pow(tx - ox, 2) + Math.pow(ty - oy, 2));
 
-  // If both are on the SAME island:
+  // If on the SAME island (island coordinates match):
   if (islandDist < 0.01) {
-    if (origin.id && target.id && origin.id === target.id) return 0;
     const slot1 = Number(origin.islandSlot ?? 0);
     const slot2 = Number(target.islandSlot ?? 1);
-    const slotDiff = Math.abs(slot2 - slot1);
-    // On-island slot distance: ~0.4 to 1.8 grid units
-    return Math.max(0.35, Math.min(2.0, 0.35 + slotDiff * 0.12));
+    const slotDiff = Math.abs(slot2 - slot1) || 1;
+    // On-island distance scale: 2.0 to 8.0 units
+    return 2.0 + slotDiff * 0.35;
   }
 
   return islandDist;
@@ -54,9 +55,10 @@ export function calculateTravelTimeSeconds(distance, unitBaseSpeed, worldSpeed =
 
   if (dist <= 0) return 0;
   
-  // Official Grepolis formula: (distance * 50 / (speed * worldSpeed * unitSpeed)) in minutes -> * 60 for seconds
+  // Official Grepolis travel time formula:
+  // Duration (minutes) = (distance * 50) / (speed * worldSpeed * unitSpeed)
   const minutes = (dist * 50) / (speed * wSpeed * uSpeed);
-  return Math.max(60, Math.round(minutes * 60));
+  return Math.max(30, Math.round(minutes * 60));
 }
 
 export function formatDuration(totalSeconds) {
@@ -152,9 +154,9 @@ export default function RoutePlannerTool({
         <div className="flex items-center justify-between text-xs px-2 mb-3 text-slate-400 bg-slate-800/40 py-1.5 rounded-lg border border-slate-700/40">
           <span>
             {isSameIsland ? (
-              <span className="text-amber-400 font-semibold">📍 Same Island (Coastal/Land Transit)</span>
+              <span className="text-amber-400 font-semibold">📍 Same Island (On-Island Route: {distance.toFixed(1)} units)</span>
             ) : (
-              <>Grid Distance: <strong className="text-white font-mono">{distance.toFixed(2)}</strong> units</>
+              <>Nautical Distance: <strong className="text-white font-mono">{distance.toFixed(2)}</strong> units</>
             )}
           </span>
           <span className="text-emerald-400 font-semibold font-mono">~{(distance * 128).toFixed(0)} px</span>

@@ -539,13 +539,13 @@ export default function WorldMap() {
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    5.0, 0.22,
-                    6.0, 0.45,
-                    7.0, 0.90,
-                    8.0, 1.80,
-                    9.0, 3.60,
-                    10.0, 7.20,
-                    12.0, 28.8
+                    5.0, 0.19,
+                    6.0, 0.39,
+                    7.0, 0.78,
+                    8.0, 1.56,
+                    9.0, 3.12,
+                    10.0, 6.25,
+                    11.5, 17.6
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -603,10 +603,12 @@ export default function WorldMap() {
                   "icon-image": "empty_slot",
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    6.8, 0.05,
-                    8.0, 0.12,
-                    9.5, 0.28,
-                    11.0, 0.65
+                    6.8, 0.10,
+                    7.5, 0.20,
+                    8.5, 0.40,
+                    9.5, 0.80,
+                    10.5, 1.60,
+                    11.5, 3.20
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -701,11 +703,12 @@ export default function WorldMap() {
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    6.5, 0.05,
-                    7.5, 0.10,
-                    8.5, 0.20,
-                    9.5, 0.40,
-                    11.0, 1.10
+                    6.5, 0.12,
+                    7.5, 0.24,
+                    8.5, 0.48,
+                    9.5, 0.96,
+                    10.5, 1.92,
+                    11.5, 3.84
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -734,16 +737,7 @@ export default function WorldMap() {
                   ],
                   "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#ffffff",
-                  "circle-translate": [
-                    0, 
-                    [
-                      "interpolate", ["linear"], ["zoom"],
-                      6.8, -12,
-                      8.5, -20,
-                      10.0, -32,
-                      12.0, -50
-                    ]
-                  ]
+                  "circle-translate": [0, -18]
                 }}
               />
 
