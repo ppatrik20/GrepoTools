@@ -1,18 +1,19 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Map, { Source, Layer, Popup } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { 
   Menu, X, MapPin, Trophy, Users, Loader2, Navigation, Compass,
-  Ghost, Layers, Sliders, Sparkles
+  Ghost, Layers, Sparkles
 } from 'lucide-react';
 import IslandModal from "@/components/IslandModal";
 import DeepDiveModal from "@/components/DeepDiveModal";
-import UnifiedSearchPanel from "@/components/map/UnifiedSearchPanel";
+import UnifiedSearchPanel, { normalizeTownData } from "@/components/map/UnifiedSearchPanel";
 import CommandDrawer from "@/components/map/CommandDrawer";
 import RoutePlannerTool from "@/components/map/RoutePlannerTool";
+import { registerMapAssets, ALL_ISLAND_TYPES } from "@/lib/map/assetLoader";
 import { useApp } from "@/context/AppContext";
 
 const MAP_STYLE = {
@@ -27,13 +28,6 @@ const MAP_STYLE = {
     }
   ]
 };
-
-const ALL_ISLAND_TYPES = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-  11, 12, 13, 14, 15, 16,
-  37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
-  47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60
-];
 
 function generateOceanGrid() {
   const features = [];
@@ -103,13 +97,14 @@ export default function WorldMap() {
   const [selectedEntity, setSelectedEntity] = useState(null);
   const [expandedModalEntity, setExpandedModalEntity] = useState(null);
   
-  // Interactive filters
+  // Interactive tools
   const [showGhostsOnly, setShowGhostsOnly] = useState(false);
   const [showEmptySlots, setShowEmptySlots] = useState(true);
   const [isRouteToolActive, setIsRouteToolActive] = useState(false);
   const [routeOrigin, setRouteOrigin] = useState(null);
   const [routeTarget, setRouteTarget] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [assetsReady, setAssetsReady] = useState(false);
 
   const mapRef = useRef();
   const rafRef = useRef(null);
@@ -227,10 +222,13 @@ export default function WorldMap() {
   // Arcing Naval Route Line
   const routeLineData = useMemo(() => {
     if (!routeOrigin || !routeTarget) return null;
-    const ox = routeOrigin.islandX ?? routeOrigin.x ?? 500;
-    const oy = routeOrigin.islandY ?? routeOrigin.y ?? 500;
-    const tx = routeTarget.islandX ?? routeTarget.x ?? 500;
-    const ty = routeTarget.islandY ?? routeTarget.y ?? 500;
+    const ox = Number(routeOrigin.islandX ?? routeOrigin.x ?? 500);
+    const oy = Number(routeOrigin.islandY ?? routeOrigin.y ?? 500);
+    const tx = Number(routeTarget.islandX ?? targetX(routeTarget));
+    const ty = Number(routeTarget.islandY ?? targetY(routeTarget));
+
+    function targetX(t) { return t.islandX ?? t.x ?? 500; }
+    function targetY(t) { return t.islandY ?? t.y ?? 500; }
 
     const oLng = (ox / 1000) * 360 - 180;
     const oLat = -((oy / 1000) * 180 - 90);
@@ -260,7 +258,7 @@ export default function WorldMap() {
     };
   }, [routeOrigin, routeTarget]);
 
-  // Search Jump / Selection handler
+  // Search Selection Handler
   const handleSelectSearchResult = (type, item) => {
     if (!mapRef.current) return;
     
@@ -271,9 +269,15 @@ export default function WorldMap() {
       targetLat = -((item.y / 1000) * 180 - 90);
       setSelectedEntity({ type: 'island', data: item });
     } else if (type === 'town') {
-      targetLng = (item.islandX / 1000) * 360 - 180;
-      targetLat = -((item.islandY / 1000) * 180 - 90);
-      setSelectedEntity({ type: 'town', data: item });
+      const norm = normalizeTownData(item);
+      targetLng = (norm.islandX / 1000) * 360 - 180;
+      targetLat = -((norm.islandY / 1000) * 180 - 90);
+      setSelectedEntity({ type: 'town', data: norm });
+      
+      if (isRouteToolActive) {
+        if (!routeOrigin) setRouteOrigin(norm);
+        else setRouteTarget(norm);
+      }
     } else if (type === 'player') {
       setSelectedEntity({ type: 'player', data: item });
       setHighlightedPlayers({ [item.name]: '#f59e0b' });
@@ -286,11 +290,18 @@ export default function WorldMap() {
 
     mapRef.current.flyTo({
       center: [targetLng, targetLat],
-      zoom: 9.5,
+      zoom: 9.2,
       duration: 1200,
       essential: true
     });
   };
+
+  const handleMapLoad = useCallback((e) => {
+    const map = e.target;
+    registerMapAssets(map, () => {
+      setAssetsReady(true);
+    });
+  }, []);
 
   return (
     <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, backgroundColor: '#0b101e', zIndex: 10 }}>
@@ -329,52 +340,7 @@ export default function WorldMap() {
             [((750 / 1000) * 360 - 180), -((250 / 1000) * 180 - 90)]
           ]}
           mapStyle={MAP_STYLE}
-          onLoad={(e) => {
-            const mapInstance = e.target.getMap ? e.target.getMap() : e.target;
-            
-            // Dynamic on-demand style image loader to prevent any missing image warning
-            mapInstance.on('styleimagemissing', (ev) => {
-              const id = ev.id;
-              let url = null;
-              if (id.startsWith('island_')) {
-                url = `/map/islands/${id}.png`;
-              } else if (id.startsWith('town_')) {
-                url = `/map/towns/${id}.png`;
-              } else if (id === 'empty_slot') {
-                url = `/map/slots/empty_slot.png`;
-              }
-              
-              if (url && !mapInstance.hasImage(id)) {
-                mapInstance.loadImage(url, (err, img) => {
-                  if (!err && img && !mapInstance.hasImage(id)) {
-                    mapInstance.addImage(id, img);
-                  }
-                });
-              }
-            });
-
-            // Preload core assets
-            const preloadImg = (id, url) => {
-              if (!mapInstance.hasImage(id)) {
-                mapInstance.loadImage(url, (err, img) => {
-                  if (!err && img && !mapInstance.hasImage(id)) {
-                    mapInstance.addImage(id, img);
-                  }
-                });
-              }
-            };
-
-            preloadImg('town_5', '/map/towns/town_5.png');
-            preloadImg('town_4', '/map/towns/town_4.png');
-            preloadImg('town_3', '/map/towns/town_3.png');
-            preloadImg('town_2', '/map/towns/town_2.png');
-            preloadImg('town_1', '/map/towns/town_1.png');
-            preloadImg('empty_slot', '/map/slots/empty_slot.png');
-
-            ALL_ISLAND_TYPES.forEach(t => {
-              preloadImg(`island_${t}`, `/map/islands/island_${t}.png`);
-            });
-          }}
+          onLoad={handleMapLoad}
           interactiveLayerIds={[
             "town-points", "town-sprites", "town-flags", 
             "islands-points", "island-sprites", "rocks-points", 
@@ -428,29 +394,20 @@ export default function WorldMap() {
                   }
                 });
               } else if (p.renderType === 'town') {
-                const townData = {
-                  id: p.id,
-                  name: p.name,
-                  player: p.player,
-                  alliance: p.alliance,
-                  points: p.points,
-                  islandX: p.islandX || p.x,
-                  islandY: p.islandY || p.y,
-                  islandSlot: p.islandSlot
-                };
+                const norm = normalizeTownData(p);
                 
-                // If route planner tool is open, clicking assigns origin/target
+                // If route planner tool is open, handle assigning origin vs target
                 if (isRouteToolActive) {
                   if (!routeOrigin) {
-                    setRouteOrigin(townData);
-                  } else if (!routeTarget && routeOrigin.id !== townData.id) {
-                    setRouteTarget(townData);
+                    setRouteOrigin(norm);
+                  } else if (!routeTarget || routeOrigin.id === norm.id) {
+                    if (routeOrigin.id !== norm.id) setRouteTarget(norm);
                   } else {
-                    setRouteTarget(townData);
+                    setRouteTarget(norm);
                   }
                 }
                 
-                setSelectedEntity({ type: 'town', data: townData });
+                setSelectedEntity({ type: 'town', data: norm });
               }
             }
           }}
@@ -491,7 +448,7 @@ export default function WorldMap() {
                 paint={{
                   "line-color": "#38bdf8",
                   "line-width": 6,
-                  "line-opacity": 0.4,
+                  "line-opacity": 0.5,
                   "line-blur": 3
                 }}
               />
@@ -510,18 +467,18 @@ export default function WorldMap() {
           {/* Islands Layer */}
           {islandsData && (
             <Source id="islands-source" type="geojson" data={islandsData}>
-              {/* Macro Zoom Island Dots (Zoom 2 to 6.8) */}
+              {/* Macro Zoom Island Dots (Zoom 2 to 5.5) */}
               <Layer 
                 id="islands-points"
                 type="circle"
                 minzoom={2}
-                maxzoom={6.8}
+                maxzoom={5.5}
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
-                    2, 3,
-                    5, 8,
-                    6.8, 14
+                    2, 2.5,
+                    4, 5.5,
+                    5.5, 9
                   ],
                   "circle-color": ["get", "islandColor"],
                   "circle-opacity": 0.45,
@@ -530,11 +487,11 @@ export default function WorldMap() {
                 }}
               />
 
-              {/* Tactical Zoom Island Terrain Sprites (Zoom >= 6.2) */}
+              {/* Tactical Zoom Island Terrain Sprites (Zoom >= 5.0) */}
               <Layer 
                 id="island-sprites"
                 type="symbol"
-                minzoom={6.2}
+                minzoom={5.0}
                 layout={{
                   "icon-image": [
                     "match", ["get", "islandType"],
@@ -581,12 +538,14 @@ export default function WorldMap() {
                     "island_1"
                   ],
                   "icon-size": [
-                    "interpolate", ["linear"], ["zoom"],
-                    6.2, 0.12,
-                    7.5, 0.32,
-                    9, 0.75,
-                    11, 1.6,
-                    13, 3.4
+                    "interpolate", ["exponential", 2], ["zoom"],
+                    5.0, 0.22,
+                    6.0, 0.45,
+                    7.0, 0.90,
+                    8.0, 1.80,
+                    9.0, 3.60,
+                    10.0, 7.20,
+                    12.0, 28.8
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -603,13 +562,13 @@ export default function WorldMap() {
                 id="rocks-points"
                 type="circle"
                 minzoom={2}
-                maxzoom={7.5}
+                maxzoom={6.5}
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
                     2, 1.5,
-                    6, 6,
-                    7.5, 10
+                    5, 4.5,
+                    6.5, 7
                   ],
                   "circle-color": ["get", "islandColor"],
                   "circle-opacity": 0.4,
@@ -627,28 +586,27 @@ export default function WorldMap() {
                 id="empty-slots-points"
                 type="circle"
                 minzoom={5.5}
-                maxzoom={8}
+                maxzoom={7.0}
                 paint={{
                   "circle-radius": 2.5,
                   "circle-color": "#ffffff",
                   "circle-opacity": 0.4,
                   "circle-stroke-width": 1,
-                  "circle-stroke-color": "#94a3b8",
-                  "circle-stroke-opacity": 0.6
+                  "circle-stroke-color": "#94a3b8"
                 }}
               />
               <Layer
                 id="empty-slots-sprites"
                 type="symbol"
-                minzoom={7.5}
+                minzoom={6.8}
                 layout={{
                   "icon-image": "empty_slot",
                   "icon-size": [
-                    "interpolate", ["linear"], ["zoom"],
-                    7.5, 0.05,
-                    9, 0.11,
-                    11, 0.22,
-                    14, 0.45
+                    "interpolate", ["exponential", 2], ["zoom"],
+                    6.8, 0.05,
+                    8.0, 0.12,
+                    9.5, 0.28,
+                    11.0, 0.65
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -666,7 +624,7 @@ export default function WorldMap() {
                 id="clusters"
                 type="circle"
                 minzoom={2}
-                maxzoom={6}
+                maxzoom={5.5}
                 filter={["has", "point_count"]}
                 paint={{
                   "circle-color": [
@@ -690,7 +648,7 @@ export default function WorldMap() {
                 id="cluster-count"
                 type="symbol"
                 minzoom={2}
-                maxzoom={6}
+                maxzoom={5.5}
                 filter={["has", "point_count"]}
                 layout={{
                   "text-field": "{point_count_abbreviated}",
@@ -700,12 +658,12 @@ export default function WorldMap() {
                 paint={{ "text-color": "#ffffff" }}
               />
 
-              {/* Unclustered Points sized by Town Stage (Zoom 4 to 8) */}
+              {/* Unclustered Points sized by Town Stage (Zoom 3.5 to 6.8) */}
               <Layer 
                 id="town-points"
                 type="circle"
-                minzoom={4}
-                maxzoom={8}
+                minzoom={3.5}
+                maxzoom={6.8}
                 filter={["!", ["has", "point_count"]]}
                 paint={{
                   "circle-color": [
@@ -715,9 +673,9 @@ export default function WorldMap() {
                   ],
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
-                    4, ["case", ["has", "highlightColor"], 4, ["+", 1.5, ["*", ["coalesce", ["get", "stage"], 1], 0.4]]],
-                    6, ["case", ["has", "highlightColor"], 7, ["+", 2.5, ["*", ["coalesce", ["get", "stage"], 1], 0.8]]],
-                    8, ["case", ["has", "highlightColor"], 14, ["+", 4, ["*", ["coalesce", ["get", "stage"], 1], 1.5]]]
+                    3.5, ["case", ["has", "highlightColor"], 4, ["+", 1.5, ["*", ["coalesce", ["get", "stage"], 1], 0.4]]],
+                    5.5, ["case", ["has", "highlightColor"], 7, ["+", 2.5, ["*", ["coalesce", ["get", "stage"], 1], 0.8]]],
+                    6.8, ["case", ["has", "highlightColor"], 12, ["+", 4, ["*", ["coalesce", ["get", "stage"], 1], 1.2]]]
                   ],
                   "circle-opacity": 0.9,
                   "circle-stroke-width": ["case", ["has", "highlightColor"], 2, 1],
@@ -725,11 +683,11 @@ export default function WorldMap() {
                 }}
               />
 
-              {/* High-Resolution 3D Town Sprites (Zoom >= 7.5) */}
+              {/* High-Resolution 3D Town Sprites (Zoom >= 6.5) */}
               <Layer
                 id="town-sprites"
                 type="symbol"
-                minzoom={7.5}
+                minzoom={6.5}
                 filter={["!", ["has", "point_count"]]}
                 layout={{
                   "icon-image": [
@@ -742,11 +700,12 @@ export default function WorldMap() {
                     "town_1"
                   ],
                   "icon-size": [
-                    "interpolate", ["linear"], ["zoom"],
-                    7.5, 0.08,
-                    9, 0.16,
-                    11, 0.32,
-                    14, 0.65
+                    "interpolate", ["exponential", 2], ["zoom"],
+                    6.5, 0.05,
+                    7.5, 0.10,
+                    8.5, 0.20,
+                    9.5, 0.40,
+                    11.0, 1.10
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -754,11 +713,11 @@ export default function WorldMap() {
                 }}
               />
 
-              {/* Dynamic Alliance Flag Badge hovering over town (Zoom >= 7.5) */}
+              {/* Dynamic Alliance Flag Badge (Zoom >= 6.8) */}
               <Layer
                 id="town-flags"
                 type="circle"
-                minzoom={7.5}
+                minzoom={6.8}
                 filter={["!", ["has", "point_count"]]}
                 paint={{
                   "circle-color": [
@@ -768,28 +727,37 @@ export default function WorldMap() {
                   ],
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
-                    7.5, 4,
-                    9, 6,
-                    11, 8.5,
-                    14, 13
+                    6.8, 3.5,
+                    8.5, 5.5,
+                    10.0, 8,
+                    12.0, 12
                   ],
-                  "circle-stroke-width": 2,
+                  "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#ffffff",
-                  "circle-translate": [0, -20]
+                  "circle-translate": [
+                    0, 
+                    [
+                      "interpolate", ["linear"], ["zoom"],
+                      6.8, -12,
+                      8.5, -20,
+                      10.0, -32,
+                      12.0, -50
+                    ]
+                  ]
                 }}
               />
 
-              {/* Town Name Labels (Zoom >= 8.8) */}
+              {/* Town Name Labels (Zoom >= 8.5) */}
               <Layer
                 id="town-labels"
                 type="symbol"
-                minzoom={8.8}
+                minzoom={8.5}
                 filter={["!", ["has", "point_count"]]}
                 layout={{
                   "text-field": ["get", "name"],
                   "text-font": ["Noto Sans Regular"],
                   "text-size": 11,
-                  "text-offset": [0, -2.8],
+                  "text-offset": [0, -3.2],
                   "text-anchor": "bottom",
                   "text-optional": true
                 }}
@@ -920,7 +888,7 @@ export default function WorldMap() {
           onClose={() => setExpandedModalEntity(null)} 
           customColors={customColors}
           worldId={activeWorldId}
-          onTownClick={(town) => setSelectedEntity({ type: 'town', data: town })}
+          onTownClick={(town) => setSelectedEntity({ type: 'town', data: normalizeTownData(town) })}
           onPlayerClick={(player) => setSelectedEntity({ type: 'player', data: player })}
           onAllianceClick={(alliance) => setSelectedEntity({ type: 'alliance', data: alliance })}
         />

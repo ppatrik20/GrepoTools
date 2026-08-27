@@ -3,7 +3,7 @@
 import React from 'react';
 import { 
   Navigation, X, ArrowLeftRight, Clock, Anchor, Shield, 
-  Flame, Wind, Compass, Sparkles, Send
+  Flame, Wind, Compass, Sparkles, Send, MapPin
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -26,22 +26,41 @@ const MYTHICAL_FLYING_UNITS = [
 
 export function calculateDistance(origin, target) {
   if (!origin || !target) return 0;
-  const ox = origin.islandX || origin.x || 500;
-  const oy = origin.islandY || origin.y || 500;
-  const tx = target.islandX || target.x || 500;
-  const ty = target.islandY || target.y || 500;
-  return Math.sqrt(Math.pow(tx - ox, 2) + Math.pow(ty - oy, 2));
+  const ox = Number(origin.islandX ?? origin.x ?? 500);
+  const oy = Number(origin.islandY ?? origin.y ?? 500);
+  const tx = Number(target.islandX ?? target.x ?? 500);
+  const ty = Number(target.islandY ?? target.y ?? 500);
+  
+  const islandDist = Math.sqrt(Math.pow(tx - ox, 2) + Math.pow(ty - oy, 2));
+
+  // If both are on the SAME island:
+  if (islandDist < 0.01) {
+    if (origin.id && target.id && origin.id === target.id) return 0;
+    const slot1 = Number(origin.islandSlot ?? 0);
+    const slot2 = Number(target.islandSlot ?? 1);
+    const slotDiff = Math.abs(slot2 - slot1);
+    // On-island slot distance: ~0.4 to 1.8 grid units
+    return Math.max(0.35, Math.min(2.0, 0.35 + slotDiff * 0.12));
+  }
+
+  return islandDist;
 }
 
 export function calculateTravelTimeSeconds(distance, unitBaseSpeed, worldSpeed = 3, unitSpeed = 1) {
-  if (distance <= 0) return 0;
+  const dist = Number(distance || 0);
+  const speed = Number(unitBaseSpeed || 10);
+  const wSpeed = Math.max(1, Number(worldSpeed || 3));
+  const uSpeed = Math.max(1, Number(unitSpeed || 1));
+
+  if (dist <= 0) return 0;
+  
   // Official Grepolis formula: (distance * 50 / (speed * worldSpeed * unitSpeed)) in minutes -> * 60 for seconds
-  const minutes = (distance * 50) / (unitBaseSpeed * worldSpeed * unitSpeed);
-  return Math.round(minutes * 60);
+  const minutes = (dist * 50) / (speed * wSpeed * uSpeed);
+  return Math.max(60, Math.round(minutes * 60));
 }
 
 export function formatDuration(totalSeconds) {
-  if (totalSeconds <= 0) return '00:00:00';
+  if (!totalSeconds || totalSeconds <= 0) return '00:00:00';
   const hrs = Math.floor(totalSeconds / 3600);
   const mins = Math.floor((totalSeconds % 3600) / 60);
   const secs = totalSeconds % 60;
@@ -58,6 +77,10 @@ export default function RoutePlannerTool({
   unitSpeed = 1
 }) {
   const distance = calculateDistance(origin, target);
+  const isSameIsland = origin && target && 
+    (Number(origin.islandX ?? origin.x) === Number(target.islandX ?? target.x)) &&
+    (Number(origin.islandY ?? origin.y) === Number(target.islandY ?? target.y)) &&
+    (origin.id !== target.id);
 
   return (
     <div className="glass-panel fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl p-4 backdrop-blur-xl animate-fade-in w-[520px] max-w-[95vw]">
@@ -85,13 +108,15 @@ export default function RoutePlannerTool({
       <div className="flex items-center gap-2 mb-3 bg-slate-950/40 p-2.5 rounded-xl border border-slate-800">
         {/* Origin */}
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-bold uppercase text-primary tracking-wider">Origin</div>
+          <div className="text-[10px] font-bold uppercase text-primary tracking-wider flex items-center gap-1">
+            <MapPin size={10} /> Origin City
+          </div>
           <div className="font-bold text-white text-xs truncate">
-            {origin ? origin.name : <span className="text-slate-500 italic">Select origin on map...</span>}
+            {origin ? origin.name : <span className="text-slate-500 italic">Click a town on map...</span>}
           </div>
           {origin && (
             <div className="text-[10px] text-slate-400 font-mono">
-              ({origin.islandX || origin.x}, {origin.islandY || origin.y})
+              ({origin.islandX ?? origin.x}, {origin.islandY ?? origin.y}) • Slot #{origin.islandSlot ?? '0'}
             </div>
           )}
         </div>
@@ -108,13 +133,15 @@ export default function RoutePlannerTool({
 
         {/* Target */}
         <div className="flex-1 min-w-0 text-right">
-          <div className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider">Target</div>
+          <div className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider flex items-center justify-end gap-1">
+            <Compass size={10} /> Target City
+          </div>
           <div className="font-bold text-white text-xs truncate">
-            {target ? target.name : <span className="text-slate-500 italic">Select target on map...</span>}
+            {target ? target.name : <span className="text-slate-500 italic">Click target on map...</span>}
           </div>
           {target && (
             <div className="text-[10px] text-slate-400 font-mono">
-              ({target.islandX || target.x}, {target.islandY || target.y})
+              ({target.islandX ?? target.x}, {target.islandY ?? target.y}) • Slot #{target.islandSlot ?? '0'}
             </div>
           )}
         </div>
@@ -122,15 +149,21 @@ export default function RoutePlannerTool({
 
       {/* Distance Metric */}
       {origin && target && (
-        <div className="flex items-center justify-between text-xs px-2 mb-3 text-slate-400">
-          <span>Grid Distance: <strong className="text-white font-mono">{distance.toFixed(2)}</strong> units</span>
-          <span className="text-emerald-400 font-semibold font-mono">~{(distance * 128).toFixed(0)} pixels</span>
+        <div className="flex items-center justify-between text-xs px-2 mb-3 text-slate-400 bg-slate-800/40 py-1.5 rounded-lg border border-slate-700/40">
+          <span>
+            {isSameIsland ? (
+              <span className="text-amber-400 font-semibold">📍 Same Island (Coastal/Land Transit)</span>
+            ) : (
+              <>Grid Distance: <strong className="text-white font-mono">{distance.toFixed(2)}</strong> units</>
+            )}
+          </span>
+          <span className="text-emerald-400 font-semibold font-mono">~{(distance * 128).toFixed(0)} px</span>
         </div>
       )}
 
       {/* Unit Speed Table */}
-      {origin && target ? (
-        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700">
+      {origin && target && distance > 0 ? (
+        <div className="space-y-2 max-h-52 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700">
           <div className="text-[10px] font-bold uppercase text-slate-400 px-1">Naval Fleet Times</div>
           <div className="grid grid-cols-2 gap-1.5">
             {NAVAL_UNITS.map(unit => {
@@ -166,12 +199,16 @@ export default function RoutePlannerTool({
         </div>
       ) : (
         <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-800 rounded-xl">
-          Click any town on the map to set Origin, then click another town to calculate live travel times.
+          {origin && !target ? (
+            <span className="text-emerald-300 font-medium">Origin set: <strong>{origin.name}</strong>. Now click any other town on the map!</span>
+          ) : (
+            <span>Click any town on the map to set Origin, then click another town to calculate live travel times.</span>
+          )}
         </div>
       )}
 
       {/* Action footer */}
-      {origin && target && (
+      {origin && target && distance > 0 && (
         <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
           <button
             onClick={onClear}
