@@ -134,7 +134,8 @@ export async function generateGeoJSON(worldId = 'hu119') {
     const totalCapacity = island.availableTowns + islandTowns.length;
     if (totalCapacity === 0) continue; // Skip purely decorative rocks
 
-    const isRock = totalCapacity <= 13 || (island.type >= 11 && island.type <= 36) || (island.type >= 47 && island.type <= 60);
+    const isColonizable = (island.type >= 1 && island.type <= 16) || (island.type >= 37 && island.type <= 60);
+    const isRock = !isColonizable;
 
     let islandColor = "#1e293b"; // Default empty island color
     if (islandTowns.length > 0) {
@@ -220,7 +221,7 @@ export async function generateGeoJSON(worldId = 'hu119') {
         slotLng = pixelToLng(townPixelX);
         slotLat = pixelToLat(townPixelY);
       } else {
-        // Orbit fallback if type definition is missing
+        // Orbit fallback only if type definition is missing (non-colonizable / rocks)
         dir = 'nw';
         const orbitRadius = isRock ? 0.10 : 0.15;
         const angle = (slot / totalSlotCount) * Math.PI * 2;
@@ -252,7 +253,7 @@ export async function generateGeoJSON(worldId = 'hu119') {
             isGhost: town.isGhost
           }
         });
-      } else if (slot < island.availableTowns) {
+      } else if (definedSlots.length > 0 || slot < island.availableTowns) {
         features.push({
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [slotLng, slotLat] },

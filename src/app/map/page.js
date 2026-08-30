@@ -14,6 +14,7 @@ import UnifiedSearchPanel, { normalizeTownData } from "@/components/map/UnifiedS
 import CommandDrawer from "@/components/map/CommandDrawer";
 import RoutePlannerTool from "@/components/map/RoutePlannerTool";
 import { registerMapAssets, ALL_ISLAND_TYPES } from "@/lib/map/assetLoader";
+import islandDefinitions from "@/lib/map/island_definitions.json";
 import { useApp } from "@/context/AppContext";
 
 const MAP_STYLE = {
@@ -78,6 +79,52 @@ function generateOceanGrid() {
   }
 
   return { type: "FeatureCollection", features };
+}
+
+const TOWN_DIR_OFFSETS = {
+  nw: { x: 9, y: 14 },
+  ne: { x: 17, y: 11 },
+  sw: { x: 10, y: 13 },
+  se: { x: 15, y: 13 }
+};
+
+function getTownMapCoordinates(town) {
+  if (!town) return [0, 0];
+  if (town.lng !== undefined && town.lat !== undefined) {
+    return [Number(town.lng), Number(town.lat)];
+  }
+  if (town.coordinates && Array.isArray(town.coordinates)) {
+    return [Number(town.coordinates[0]), Number(town.coordinates[1])];
+  }
+
+  const ix = Number(town.islandX ?? town.x ?? 500);
+  const iy = Number(town.islandY ?? town.y ?? 500);
+  const islandType = Number(town.islandType || 1);
+  const slot = Number(town.islandSlot ?? town.slot ?? 0);
+  
+  const islandDef = islandDefinitions[islandType] || null;
+  const definedSlots = islandDef?.town_offsets || [];
+  const slotDef = definedSlots[slot];
+
+  const islandPixelX = ix * 128;
+  const islandPixelY = iy * 128 + ((ix & 1) ? 64 : 0);
+
+  if (slotDef) {
+    const dir = town.dir || slotDef.dir || 'nw';
+    const dirOffset = TOWN_DIR_OFFSETS[dir] || { x: 9, y: 14 };
+    const townPixelX = islandPixelX + slotDef.x + dirOffset.x;
+    const townPixelY = islandPixelY + slotDef.y + dirOffset.y;
+    return [(townPixelX / 128000) * 360 - 180, -((townPixelY / 128000) * 180 - 90)];
+  }
+
+  const tileWidth = islandDef?.width || 7;
+  const tileHeight = islandDef?.height || 4;
+  const islandCenterPixelX = islandPixelX + (tileWidth * 128) / 2;
+  const islandCenterPixelY = islandPixelY + (tileHeight * 128) / 2;
+  const centerLng = (islandCenterPixelX / 128000) * 360 - 180;
+  const centerLat = -((islandCenterPixelY / 128000) * 180 - 90);
+  const angle = (slot / 20) * Math.PI * 2;
+  return [centerLng + Math.cos(angle) * 0.003, centerLat + Math.sin(angle) * 0.003];
 }
 
 export default function WorldMap() {
@@ -222,21 +269,17 @@ export default function WorldMap() {
   // Arcing Naval Route Line
   const routeLineData = useMemo(() => {
     if (!routeOrigin || !routeTarget) return null;
-    const ox = Number(routeOrigin.islandX ?? routeOrigin.x ?? 500);
-    const oy = Number(routeOrigin.islandY ?? routeOrigin.y ?? 500);
-    const tx = Number(routeTarget.islandX ?? targetX(routeTarget));
-    const ty = Number(routeTarget.islandY ?? targetY(routeTarget));
+    const [oLng, oLat] = getTownMapCoordinates(routeOrigin);
+    const [tLng, tLat] = getTownMapCoordinates(routeTarget);
 
-    function targetX(t) { return t.islandX ?? t.x ?? 500; }
-    function targetY(t) { return t.islandY ?? t.y ?? 500; }
-
-    const oLng = (ox / 1000) * 360 - 180;
-    const oLat = -((oy / 1000) * 180 - 90);
-    const tLng = (tx / 1000) * 360 - 180;
-    const tLat = -((ty / 1000) * 180 - 90);
+    const dLng = tLng - oLng;
+    const dLat = tLat - oLat;
+    const chordLen = Math.sqrt(dLng * dLng + dLat * dLat);
+    if (chordLen === 0) return null;
 
     const midLng = (oLng + tLng) / 2;
-    const midLat = (oLat + tLat) / 2 + (Math.abs(tLng - oLng) * 0.12);
+    const arcHeight = Math.max(chordLen * 0.20, Math.abs(dLng) * 0.12, 0.0008);
+    const midLat = (oLat + tLat) / 2 + arcHeight;
 
     const points = [];
     const steps = 40;
@@ -395,6 +438,14 @@ export default function WorldMap() {
                 });
               } else if (p.renderType === 'town') {
                 const norm = normalizeTownData(p);
+                if (feature.geometry?.coordinates) {
+                  norm.lng = feature.geometry.coordinates[0];
+                  norm.lat = feature.geometry.coordinates[1];
+                  norm.coordinates = feature.geometry.coordinates;
+                }
+                if (p.islandType) norm.islandType = p.islandType;
+                if (p.dir) norm.dir = p.dir;
+                if (p.islandSlot !== undefined) norm.islandSlot = p.islandSlot;
                 
                 // If route planner tool is open, handle assigning origin vs target
                 if (isRouteToolActive) {
@@ -539,13 +590,14 @@ export default function WorldMap() {
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    5.0, 0.19,
-                    6.0, 0.39,
-                    7.0, 0.78,
-                    8.0, 1.56,
-                    9.0, 3.12,
-                    10.0, 6.25,
-                    11.5, 17.6
+                    5, 0.224,
+                    6, 0.448,
+                    7, 0.896,
+                    8, 1.792,
+                    9, 3.584,
+                    10, 7.168,
+                    11, 14.336,
+                    12, 28.672
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,

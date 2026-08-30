@@ -1,30 +1,19 @@
-# Project Plan - Grepolis Command Center Blueprint
+# Plan: Next-Generation Grepolis World Map & Command Center
 
-## Goal
-Research, design, and compile a comprehensive blueprint for a Grepolis Command Center, incorporating advanced city manager, manual army tracker, and strategic dashboard, saved at `d:\Dev\Web\Grepolis\docs\command_center_research\command_center_blueprint.md`.
+## Phase 0: Survey & Codebase Exploration
+- Spawn 3 Explorers in parallel to map:
+  1. MapLibre GL setup, island sprite pipeline, town stage models, slot coordinates, projection/scaling math.
+  2. Search bar, autocomplete, keyboard shortcuts, CommandDrawer components, nested player/alliance data structures.
+  3. Route planner, distance calculation formulas (same-island and inter-island), troop travel speeds, MapLibre trajectory layer, /snipe integration.
 
-## Work Breakdown
+## Phase 1: Architecture Synthesis & Project Mapping
+- Synthesize Explorer reports into `PROJECT.md` (Feature Inventory, Architecture, Milestones, Interface Contracts, Code Layout).
+- Create `TEST_INFRA.md` with full test criteria.
 
-### Milestone 1: Tactical Feature Research
-- **Objective**: Extract advanced offensive, defensive, and sniping strategies from tactical guides.
-- **Subtask**: Read reference guide URLs (simulated/known strategies if offline), outline how they translate into tracking or planner features (e.g., pure offensive nukes, timing/Recall sniping windows, support/attack alignment).
+## Phase 2: Execution & Verification
+- Execute Milestones through Explorer -> Worker -> Reviewer -> Challenger -> Auditor loop.
+- Validate `npm run build && prisma generate` passes with 0 errors.
 
-### Milestone 2: Main Dashboard Design
-- **Objective**: Plan a high-level strategic overview interface.
-- **Subtask**: Detail strategic KPIs (battle points, active siege alerts, global troop summaries, production status) and user experience layout.
-
-### Milestone 3: City Manager Design
-- **Objective**: Design the city manager modules.
-- **Subtask**: Specify manual inputs (current building levels, resources, production multipliers), temple management (deity, favor, mythical units), and optimization recommendations (e.g., matching building priorities to city purpose: pure offensive, naval, myth, land defense).
-
-### Milestone 4: Army Tracker & Sniping Design
-- **Objective**: Design manual troop tracking and operations timing.
-- **Subtask**: Plan army tracker input, transport capacity calculations, and CS sniping helper (calculating launch and recall windows with the +/-10s anti-timer rule).
-
-### Milestone 5: Technical Stack & DB Schema
-- **Objective**: Detail Next.js, Prisma, and TailwindCSS implementation path.
-- **Subtask**: Define exact Prisma models (adding fields to Town, Player, new models for Operations, ArmyTracker, CityManager), API route list, and component hierarchy.
-
-### Milestone 6: Compile Blueprint & Verify
-- **Objective**: Compile and check the markdown file.
-- **Subtask**: Synthesize subagent reports into a single, cohesive, highly-detailed blueprint. Review for completeness, guide references, and tech feasibility.
+## Phase 3: Final Review & Delivery
+- Validate against all acceptance criteria in `ORIGINAL_REQUEST.md`.
+- Produce final completion report.

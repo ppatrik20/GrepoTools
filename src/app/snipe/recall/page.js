@@ -1,15 +1,16 @@
 'use client';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { 
   Trash2, Plus, AlertTriangle, Crosshair, Shield, Clock, RefreshCw, 
   Target, Volume2, VolumeX, Save, CheckCircle2, ChevronRight, Swords, 
-  ArrowRight, Copy, Check, Info, Sparkles, MapPin, Building, Search
+  ArrowRight, Copy, Check, Info, Sparkles, MapPin, Building, Search, Loader2
 } from 'lucide-react';
 import DummyFinder from '@/components/CommandCenter/DummyFinder';
 import { useApp } from '@/context/AppContext';
 import { calculateMidpointRecall, formatDuration } from '@/lib/traveltime';
 
-export default function RecallSnipePage() {
+function RecallSnipeContent() {
   const { activeWorldId, activeWorld, activePlayer } = useApp();
   const [groups, setGroups] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState(null);
@@ -17,9 +18,65 @@ export default function RecallSnipePage() {
   const [now, setNow] = useState(new Date());
   const [audioEnabled, setAudioEnabled] = useState(true);
 
+  const searchParams = useSearchParams();
+  const targetTownId = searchParams.get('targetTownId');
+  const originTownId = searchParams.get('originTownId');
+
   // Autocomplete states for adding target city
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedTownId, setSelectedTownId] = useState(null);
+
+  // Ingest query parameters from Route Planner (/snipe/recall?targetTownId=...&originTownId=...)
+  useEffect(() => {
+    if (!targetTownId && !originTownId) return;
+
+    async function ingestParams() {
+      try {
+        const worldParam = activeWorldId || 'hu119';
+        if (targetTownId) {
+          const res = await fetch(`/api/world/town/${targetTownId}?world=${worldParam}`);
+          if (res.ok) {
+            const data = await res.json();
+            const targetTown = data.town || data;
+            if (targetTown?.name) {
+              setGroups(prev => {
+                const existing = prev.find(g => g.townId === targetTown.id || g.name.toLowerCase() === targetTown.name.toLowerCase());
+                if (existing) {
+                  setActiveGroupId(existing.id);
+                  return prev;
+                }
+                const newGroup = {
+                  id: Date.now().toString(),
+                  name: targetTown.name,
+                  townId: targetTown.id,
+                  worldType: (activeWorld?.worldType || 'siege').toLowerCase(),
+                  movements: [],
+                  plans: []
+                };
+                setActiveGroupId(newGroup.id);
+                return [...prev, newGroup];
+              });
+            }
+          }
+        }
+        if (originTownId) {
+          const res = await fetch(`/api/world/town/${originTownId}?world=${worldParam}`);
+          if (res.ok) {
+            const data = await res.json();
+            const originTown = data.town || data;
+            if (originTown?.name) {
+              setMovAttacker(originTown.name);
+              setMovAttackerId(originTown.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to ingest recall query params:", err);
+      }
+    }
+
+    ingestParams();
+  }, [targetTownId, originTownId, activeWorldId, activeWorld]);
   const [citySearchResults, setCitySearchResults] = useState([]);
   const [isSearchingCity, setIsSearchingCity] = useState(false);
   const [cityFocusedIndex, setCityFocusedIndex] = useState(-1);
@@ -1201,5 +1258,17 @@ export default function RecallSnipePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function RecallSnipePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center p-12 text-slate-400">
+        <Loader2 className="animate-spin mr-2" size={24} /> Loading Recall Sniper...
+      </div>
+    }>
+      <RecallSnipeContent />
+    </Suspense>
   );
 }

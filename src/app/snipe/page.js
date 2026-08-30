@@ -1,12 +1,18 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { Crosshair, Plus, Trash2, Clock, Swords, Shield, RefreshCw, ArrowRight } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Crosshair, Plus, Trash2, Clock, Swords, Shield, RefreshCw, ArrowRight, Loader2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import SnipeQueueItem from '@/components/SnipeQueueItem';
+import { calculateDistance, calculateTravelTimeSeconds, formatDuration } from '@/components/map/RoutePlannerTool';
 
-export default function SnipeTimerPage() {
+function SnipeTimerContent() {
   const { activeWorldId, activeWorld } = useApp();
+  const searchParams = useSearchParams();
+  const targetTownId = searchParams.get('targetTownId');
+  const originTownId = searchParams.get('originTownId');
+
   const [targetTime, setTargetTime] = useState('');
   const [travelTime, setTravelTime] = useState('');
   const [label, setLabel] = useState('');
@@ -14,6 +20,52 @@ export default function SnipeTimerPage() {
   const [serverOffset, setServerOffset] = useState(0);
   
   const [queue, setQueue] = useState([]);
+
+  // Ingest query parameters from Route Planner (/snipe?targetTownId=...&originTownId=...)
+  useEffect(() => {
+    if (!targetTownId && !originTownId) return;
+
+    async function ingestParams() {
+      try {
+        const worldParam = activeWorldId || 'hu119';
+        let originTown = null;
+        let targetTown = null;
+
+        if (originTownId) {
+          const res = await fetch(`/api/world/town/${originTownId}?world=${worldParam}`);
+          if (res.ok) {
+            const data = await res.json();
+            originTown = data.town || data;
+          }
+        }
+        if (targetTownId) {
+          const res = await fetch(`/api/world/town/${targetTownId}?world=${worldParam}`);
+          if (res.ok) {
+            const data = await res.json();
+            targetTown = data.town || data;
+          }
+        }
+
+        if (originTown && targetTown) {
+          setLabel(`${originTown.name} → ${targetTown.name}`);
+          const dist = calculateDistance(originTown, targetTown);
+          const worldSpeed = activeWorld?.speed || 3;
+          const unitSpeed = activeWorld?.unitSpeed || 1;
+          const travelSecs = calculateTravelTimeSeconds(dist, 3, worldSpeed, unitSpeed);
+          setTravelTime(formatDuration(travelSecs));
+          setType('cs');
+        } else if (targetTown) {
+          setLabel(`Operation on ${targetTown.name}`);
+        } else if (originTown) {
+          setLabel(`Operation from ${originTown.name}`);
+        }
+      } catch (err) {
+        console.error("Failed to ingest snipe query params:", err);
+      }
+    }
+
+    ingestParams();
+  }, [targetTownId, originTownId, activeWorldId, activeWorld]);
 
   // Load from local storage for active world
   useEffect(() => {
@@ -208,5 +260,17 @@ export default function SnipeTimerPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function SnipeTimerPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center p-12 text-slate-400">
+        <Loader2 className="animate-spin mr-2" size={24} /> Loading Operations Queue...
+      </div>
+    }>
+      <SnipeTimerContent />
+    </Suspense>
   );
 }

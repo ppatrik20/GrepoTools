@@ -121,6 +121,67 @@ export function formatDuration(seconds) {
 }
 
 /**
+ * Calculates Euclidean nautical distance between two towns, or same-island slot distance.
+ * @param {object} origin 
+ * @param {object} target 
+ * @returns {number} Distance in game units
+ */
+export function calculateDistance(origin, target) {
+  if (!origin || !target) return 0;
+  if (origin.id && target.id && origin.id === target.id) return 0;
+
+  const ox = Number(origin.islandX ?? origin.x ?? 500);
+  const oy = Number(origin.islandY ?? origin.y ?? 500);
+  const tx = Number(target.islandX ?? target.x ?? 500);
+  const ty = Number(target.islandY ?? target.y ?? 500);
+  
+  const islandDist = Math.sqrt(Math.pow(tx - ox, 2) + Math.pow(ty - oy, 2));
+
+  // If on the SAME island (island coordinates match):
+  if (islandDist < 0.01) {
+    const slot1 = Number(origin.islandSlot ?? 0);
+    const slot2 = Number(target.islandSlot ?? 1);
+    const slotDiff = Math.abs(slot2 - slot1) || 1;
+    // On-island distance scale: 2.0 to 8.0 units (2.0 + Delta_slot * 0.35)
+    return 2.0 + slotDiff * 0.35;
+  }
+
+  return islandDist;
+}
+
+/**
+ * Calculates official travel duration in seconds based on distance, unit base speed, and world multipliers.
+ * @param {number} distance 
+ * @param {number} unitBaseSpeed 
+ * @param {number} worldSpeed 
+ * @param {number} unitSpeed 
+ * @returns {number} Duration in seconds
+ */
+export function calculateTravelTimeSeconds(distance, unitBaseSpeed, worldSpeed = 3, unitSpeed = 1) {
+  const dist = Number(distance || 0);
+  const speed = Number(unitBaseSpeed || 10);
+  const wSpeed = Math.max(1, Number(worldSpeed || 3));
+  const uSpeed = Math.max(1, Number(unitSpeed || 1));
+
+  if (dist <= 0) return 0;
+  
+  // Official Grepolis travel time formula:
+  // Duration (minutes) = (distance * 50) / (speed * worldSpeed * unitSpeed)
+  const minutes = (dist * 50) / (speed * wSpeed * uSpeed);
+  return Math.max(30, Math.round(minutes * 60));
+}
+
+/**
+ * Unwraps town payload from /api/world/town/[id] response or returns town directly if flat.
+ * @param {object} data 
+ * @returns {object|null} Unwrapped town object
+ */
+export function unwrapTownPayload(data) {
+  if (!data) return null;
+  return data.town || data;
+}
+
+/**
  * Parses HH:MM:SS string to total seconds.
  * @param {string} str 
  * @returns {number} Seconds
