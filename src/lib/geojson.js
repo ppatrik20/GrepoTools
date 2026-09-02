@@ -253,7 +253,7 @@ export async function generateGeoJSON(worldId = 'hu119') {
             isGhost: town.isGhost
           }
         });
-      } else if (definedSlots.length > 0 || slot < island.availableTowns) {
+      } else if (!isRock && definedSlots.length > 0 && slot < definedSlots.length) {
         features.push({
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [slotLng, slotLat] },
