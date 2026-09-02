@@ -22,6 +22,8 @@ export function registerMapAssets(map, onComplete) {
     let url = null;
     if (id.startsWith('island_')) {
       url = `/map/islands/${id}.png`;
+    } else if (id === 'rock_island') {
+      url = `/map/islands/rock_island.png`;
     } else if (id.startsWith('town_')) {
       url = `/map/towns/${id}.png`;
     } else if (id === 'empty_slot') {
@@ -50,7 +52,8 @@ export function registerMapAssets(map, onComplete) {
     { id: 'town_3', url: '/map/towns/town_3.png' },
     { id: 'town_2', url: '/map/towns/town_2.png' },
     { id: 'town_1', url: '/map/towns/town_1.png' },
-    { id: 'empty_slot', url: '/map/slots/empty_slot.png' }
+    { id: 'empty_slot', url: '/map/slots/empty_slot.png' },
+    { id: 'rock_island', url: '/map/islands/rock_island.png' }
   ];
 
   ALL_ISLAND_TYPES.forEach(t => {

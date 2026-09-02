@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { unstable_cache } from 'next/cache';
 import { PALETTE } from '@/lib/constants';
 import islandDefinitions from '@/lib/map/island_definitions.json';
+import alignmentMetadata from '@/lib/map/alignment_metadata.json';
 
 // In-game directional and colonization offsets extracted from Grepolis client
 const TOWN_DIR_OFFSETS = {
@@ -135,7 +136,9 @@ export async function generateGeoJSON(worldId = 'hu119') {
     if (totalCapacity === 0) continue; // Skip purely decorative rocks
 
     const isColonizable = (island.type >= 1 && island.type <= 16) || (island.type >= 37 && island.type <= 60);
-    const isRock = !isColonizable;
+    const isPopulatedRock = !isColonizable && islandTowns.length > 0;
+    const shouldRenderIsland = isColonizable || isPopulatedRock;
+    const isRock = !shouldRenderIsland;
 
     let islandColor = "#1e293b"; // Default empty island color
     if (islandTowns.length > 0) {
@@ -150,13 +153,17 @@ export async function generateGeoJSON(worldId = 'hu119') {
     const tileWidth = islandDef?.width || (isRock ? 4 : 7);
     const tileHeight = islandDef?.height || (isRock ? 3 : 4);
 
-    // Exact Grepolis pixel coordinates for island origin
+    // Exact Grepolis pixel coordinates for island origin (offset Y on odd X)
     const islandPixelX = island.x * 128;
     const islandPixelY = island.y * 128 + ((island.x & 1) ? 64 : 0);
 
-    // Center coordinates for the island landmass
-    const islandCenterPixelX = islandPixelX + (tileWidth * 128) / 2;
-    const islandCenterPixelY = islandPixelY + (tileHeight * 128) / 2;
+    // Precise concentric center coordinates matching town offsets
+    const meta = alignmentMetadata[island.type];
+    const centerX = meta ? meta.townCenterX : (tileWidth * 128) / 2;
+    const centerY = meta ? meta.townCenterY : (tileHeight * 128) / 2;
+
+    const islandCenterPixelX = islandPixelX + centerX;
+    const islandCenterPixelY = islandPixelY + centerY;
     const islandLng = pixelToLng(islandCenterPixelX);
     const islandLat = pixelToLat(islandCenterPixelY);
 
@@ -169,8 +176,8 @@ export async function generateGeoJSON(worldId = 'hu119') {
         id: island.id,
         x: island.x,
         y: island.y,
-        islandType: island.type,
-        img: islandDef?.img || 'island1.png',
+        islandType: isColonizable ? island.type : 999,
+        img: islandDef?.img || 'rock_island.png',
         width: tileWidth,
         height: tileHeight,
         resourcePlus: island.resourcePlus,

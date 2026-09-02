@@ -586,17 +586,18 @@ export default function WorldMap() {
                     58, "island_58",
                     59, "island_59",
                     60, "island_60",
-                    "island_1"
+                    999, "rock_island",
+                    "rock_island"
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    5, 0.18,
-                    6, 0.36,
-                    7, 0.72,
-                    8, 1.44,
-                    9, 2.88,
-                    10, 5.76,
-                    11, 11.52
+                    5, 0.23,
+                    6, 0.46,
+                    7, 0.93,
+                    8, 1.86,
+                    9, 3.72,
+                    10, 7.44,
+                    11, 14.88
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,

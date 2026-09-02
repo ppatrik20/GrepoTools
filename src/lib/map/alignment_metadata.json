@@ -1,0 +1,242 @@
+{
+  "1": {
+    "townCenterX": 539.5,
+    "townCenterY": 314,
+    "townSpanX": 693,
+    "townSpanY": 368
+  },
+  "2": {
+    "townCenterX": 454.5,
+    "townCenterY": 239,
+    "townSpanX": 679,
+    "townSpanY": 342
+  },
+  "3": {
+    "townCenterX": 499.5,
+    "townCenterY": 258.5,
+    "townSpanX": 717,
+    "townSpanY": 391
+  },
+  "4": {
+    "townCenterX": 440,
+    "townCenterY": 230.5,
+    "townSpanX": 680,
+    "townSpanY": 241
+  },
+  "5": {
+    "townCenterX": 531,
+    "townCenterY": 259.5,
+    "townSpanX": 634,
+    "townSpanY": 411
+  },
+  "6": {
+    "townCenterX": 460.5,
+    "townCenterY": 303,
+    "townSpanX": 731,
+    "townSpanY": 320
+  },
+  "7": {
+    "townCenterX": 310,
+    "townCenterY": 274.5,
+    "townSpanX": 396,
+    "townSpanY": 363
+  },
+  "8": {
+    "townCenterX": 417.5,
+    "townCenterY": 281.5,
+    "townSpanX": 635,
+    "townSpanY": 317
+  },
+  "9": {
+    "townCenterX": 481.5,
+    "townCenterY": 247.5,
+    "townSpanX": 751,
+    "townSpanY": 403
+  },
+  "10": {
+    "townCenterX": 471,
+    "townCenterY": 271.5,
+    "townSpanX": 686,
+    "townSpanY": 337
+  },
+  "11": {
+    "townCenterX": 272,
+    "townCenterY": 154.5,
+    "townSpanX": 306,
+    "townSpanY": 157
+  },
+  "12": {
+    "townCenterX": 220,
+    "townCenterY": 146.5,
+    "townSpanX": 202,
+    "townSpanY": 159
+  },
+  "13": {
+    "townCenterX": 364.5,
+    "townCenterY": 148.5,
+    "townSpanX": 361,
+    "townSpanY": 297
+  },
+  "14": {
+    "townCenterX": 189,
+    "townCenterY": 151.5,
+    "townSpanX": 228,
+    "townSpanY": 165
+  },
+  "15": {
+    "townCenterX": 304.5,
+    "townCenterY": 180,
+    "townSpanX": 371,
+    "townSpanY": 186
+  },
+  "16": {
+    "townCenterX": 362.5,
+    "townCenterY": 211,
+    "townSpanX": 487,
+    "townSpanY": 210
+  },
+  "37": {
+    "townCenterX": 499.5,
+    "townCenterY": 310,
+    "townSpanX": 717,
+    "townSpanY": 380
+  },
+  "38": {
+    "townCenterX": 439.5,
+    "townCenterY": 212.5,
+    "townSpanX": 717,
+    "townSpanY": 335
+  },
+  "39": {
+    "townCenterX": 490.5,
+    "townCenterY": 236,
+    "townSpanX": 767,
+    "townSpanY": 366
+  },
+  "40": {
+    "townCenterX": 480,
+    "townCenterY": 258.5,
+    "townSpanX": 772,
+    "townSpanY": 349
+  },
+  "41": {
+    "townCenterX": 512,
+    "townCenterY": 278.5,
+    "townSpanX": 738,
+    "townSpanY": 367
+  },
+  "42": {
+    "townCenterX": 477,
+    "townCenterY": 285.5,
+    "townSpanX": 744,
+    "townSpanY": 401
+  },
+  "43": {
+    "townCenterX": 426.5,
+    "townCenterY": 166,
+    "townSpanX": 683,
+    "townSpanY": 330
+  },
+  "44": {
+    "townCenterX": 518.5,
+    "townCenterY": 187.5,
+    "townSpanX": 693,
+    "townSpanY": 353
+  },
+  "45": {
+    "townCenterX": 425.5,
+    "townCenterY": 278,
+    "townSpanX": 649,
+    "townSpanY": 330
+  },
+  "46": {
+    "townCenterX": 387,
+    "townCenterY": 273,
+    "townSpanX": 692,
+    "townSpanY": 390
+  },
+  "47": {
+    "townCenterX": 299,
+    "townCenterY": 207.5,
+    "townSpanX": 434,
+    "townSpanY": 203
+  },
+  "48": {
+    "townCenterX": 295,
+    "townCenterY": 116.5,
+    "townSpanX": 300,
+    "townSpanY": 231
+  },
+  "49": {
+    "townCenterX": 401.5,
+    "townCenterY": 174,
+    "townSpanX": 607,
+    "townSpanY": 192
+  },
+  "50": {
+    "townCenterX": 312.5,
+    "townCenterY": 270,
+    "townSpanX": 319,
+    "townSpanY": 350
+  },
+  "51": {
+    "townCenterX": 276.5,
+    "townCenterY": 169,
+    "townSpanX": 243,
+    "townSpanY": 168
+  },
+  "52": {
+    "townCenterX": 406.5,
+    "townCenterY": 160.5,
+    "townSpanX": 567,
+    "townSpanY": 185
+  },
+  "53": {
+    "townCenterX": 302.5,
+    "townCenterY": 109.5,
+    "townSpanX": 539,
+    "townSpanY": 213
+  },
+  "54": {
+    "townCenterX": 250.5,
+    "townCenterY": 185,
+    "townSpanX": 273,
+    "townSpanY": 238
+  },
+  "55": {
+    "townCenterX": 254,
+    "townCenterY": 166.5,
+    "townSpanX": 400,
+    "townSpanY": 213
+  },
+  "56": {
+    "townCenterX": 349.5,
+    "townCenterY": 222.5,
+    "townSpanX": 451,
+    "townSpanY": 295
+  },
+  "57": {
+    "townCenterX": 229.5,
+    "townCenterY": 190,
+    "townSpanX": 235,
+    "townSpanY": 264
+  },
+  "58": {
+    "townCenterX": 352,
+    "townCenterY": 322,
+    "townSpanX": 410,
+    "townSpanY": 86
+  },
+  "59": {
+    "townCenterX": 309.5,
+    "townCenterY": 218.5,
+    "townSpanX": 245,
+    "townSpanY": 313
+  },
+  "60": {
+    "townCenterX": 338.5,
+    "townCenterY": 211,
+    "townSpanX": 495,
+    "townSpanY": 288
+  }
+}

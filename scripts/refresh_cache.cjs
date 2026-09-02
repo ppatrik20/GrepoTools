@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const zlib = require('zlib');
 const prisma = new PrismaClient();
 const islandDefinitions = require('../src/lib/map/island_definitions.json');
+const alignmentMetadata = require('../src/lib/map/alignment_metadata.json');
 
 const TOWN_DIR_OFFSETS = {
   nw: { x: 9, y: 14 },
@@ -87,21 +88,33 @@ async function generateGeoJSON(worldId = 'hu119') {
   const features = [];
 
   for (const island of islands) {
-    const isRock = island.type > 100 || island.availableTowns === 0;
+    const islandTowns = townLookup[`${island.x},${island.y}`] || [];
+    const totalCapacity = island.availableTowns + islandTowns.length;
+    if (totalCapacity === 0 && islandTowns.length === 0) continue;
+
+    const isColonizable = (island.type >= 1 && island.type <= 16) || (island.type >= 37 && island.type <= 60);
+    const isPopulatedRock = !isColonizable && islandTowns.length > 0;
+    const shouldRenderIsland = isColonizable || isPopulatedRock;
+    const isRock = !shouldRenderIsland;
+
     const islandDef = islandDefinitions[island.type] || null;
-    const width = islandDef?.width || 5;
-    const height = islandDef?.height || 4;
+    const tileWidth = islandDef?.width || (isRock ? 4 : 7);
+    const tileHeight = islandDef?.height || (isRock ? 3 : 4);
 
+    // Exact Grepolis pixel coordinates for island origin (stagger Y only on odd X)
     const islandPixelX = island.x * 128;
-    const islandPixelY = island.y * 128 + 64;
+    const islandPixelY = island.y * 128 + ((island.x & 1) ? 64 : 0);
 
-    const islandCenterPixelX = islandPixelX + (width * 128) / 2;
-    const islandCenterPixelY = islandPixelY + (height * 128) / 2;
+    // Precise concentric center coordinates matching town offsets
+    const meta = alignmentMetadata[island.type];
+    const centerX = meta ? meta.townCenterX : (tileWidth * 128) / 2;
+    const centerY = meta ? meta.townCenterY : (tileHeight * 128) / 2;
+
+    const islandCenterPixelX = islandPixelX + centerX;
+    const islandCenterPixelY = islandPixelY + centerY;
 
     const islandLng = pixelToLng(islandCenterPixelX);
     const islandLat = pixelToLat(islandCenterPixelY);
-
-    const islandTowns = townLookup[`${island.x},${island.y}`] || [];
 
     const allianceCounts = {};
     for (const t of islandTowns) {
@@ -135,16 +148,16 @@ async function generateGeoJSON(worldId = 'hu119') {
         id: island.id,
         x: island.x,
         y: island.y,
-        islandType: island.type,
-        img: islandDef?.img || `island${island.type}.png`,
-        width,
-        height,
+        islandType: isColonizable ? island.type : 999,
+        img: islandDef?.img || 'rock_island.png',
+        width: tileWidth,
+        height: tileHeight,
         resourcePlus: island.resourcePlus,
         resourceMinus: island.resourceMinus,
         availableTowns: island.availableTowns,
         colonizedCount: islandTowns.length,
         islandColor,
-        dominantAlliance
+        dominantAlliance: dominantAlliance || "None"
       }
     });
 
@@ -185,7 +198,7 @@ async function generateGeoJSON(worldId = 'hu119') {
         slotLat = pixelToLat(townPixelY);
       } else {
         dir = 'nw';
-        const orbitRadius = isRock ? 0.10 : 0.15;
+        const orbitRadius = 0.12;
         const angle = (slot / totalSlotCount) * Math.PI * 2;
         slotLat = islandLat + Math.sin(angle) * orbitRadius;
         slotLng = islandLng + Math.cos(angle) * orbitRadius / Math.cos(islandLat * Math.PI / 180);
@@ -238,6 +251,7 @@ async function generateGeoJSON(worldId = 'hu119') {
 }
 
 async function run() {
+  console.log('Generating fresh aligned GeoJSON for hu119...');
   const geojson = await generateGeoJSON('hu119');
   const townsCount = geojson.features.filter(f => f.properties.renderType === 'town').length;
   const emptyCount = geojson.features.filter(f => f.properties.renderType === 'empty-slot').length;
@@ -256,7 +270,7 @@ async function run() {
     }
   });
 
-  console.log('✅ World hu119 geoJsonCache successfully refreshed in DB!');
+  console.log('✅ World hu119 geoJsonCache successfully refreshed in DB with concentric alignment!');
 }
 
 run().finally(() => prisma.$disconnect());
