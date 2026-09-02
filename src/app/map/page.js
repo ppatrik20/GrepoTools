@@ -630,7 +630,7 @@ export default function WorldMap() {
           )}
 
           {/* Empty Colonization Slots Layer */}
-          {showSlots && emptySlotsData && (
+          {showEmptySlots && emptySlotsData && (
             <Source id="empty-slots-source" type="geojson" data={emptySlotsData}>
               <Layer
                 id="empty-slots-sprites"
