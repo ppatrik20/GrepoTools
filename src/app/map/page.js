@@ -6,13 +6,23 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { 
   Menu, X, MapPin, Trophy, Users, Loader2, Navigation, Compass,
-  Ghost, Layers, Sparkles
+  Ghost, Layers, Sparkles, Radio, Target, Pin, Swords, Shield
 } from 'lucide-react';
 import IslandModal from "@/components/IslandModal";
 import DeepDiveModal from "@/components/DeepDiveModal";
 import UnifiedSearchPanel, { normalizeTownData } from "@/components/map/UnifiedSearchPanel";
 import CommandDrawer from "@/components/map/CommandDrawer";
 import RoutePlannerTool from "@/components/map/RoutePlannerTool";
+import PoliticalHeatmapLegend from "@/components/map/PoliticalHeatmapLegend";
+import IntelRadarControls, { DEFAULT_RADAR_FILTERS } from "@/components/map/IntelRadarControls";
+import AnimatedTroopLayer from "@/components/map/AnimatedTroopLayer";
+import TacticalPinModal from "@/components/map/TacticalPinModal";
+import MinimapRadar from "@/components/map/MinimapRadar";
+
+import { computeAllianceVoronoi, computeContestedFrontlines } from "@/lib/map/voronoi";
+import { filterIntelOverlays } from "@/lib/map/intelRadar";
+import { calculateArcTrajectory } from "@/lib/map/trajectories";
+import { getTacticalPins, saveTacticalPin, removeTacticalPin, PIN_TYPES, PIN_PRIORITIES } from "@/lib/map/tacticalPins";
 import { registerMapAssets, ALL_ISLAND_TYPES } from "@/lib/map/assetLoader";
 import islandDefinitions from "@/lib/map/island_definitions.json";
 import { useApp } from "@/context/AppContext";
@@ -153,10 +163,34 @@ export default function WorldMap() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [assetsReady, setAssetsReady] = useState(false);
 
+  // View mode & political overlay controls (Milestone 1)
+  const [viewMode, setViewMode] = useState('geographic');
+  const [politicalOpacity, setPoliticalOpacity] = useState(0.35);
+  const [showContestedFrontlines, setShowContestedFrontlines] = useState(true);
+  const [highlightedAllianceVoronoi, setHighlightedAllianceVoronoi] = useState(null);
+
+  // Tactical Intel Radar Controls (Milestone 2)
+  const [radarFilters, setRadarFilters] = useState(DEFAULT_RADAR_FILTERS);
+
+  // Animated Troop Movements (Milestone 3)
+  const [activeTransits, setActiveTransits] = useState([]);
+
+  // Tactical Pinboard System (Milestone 4)
+  const [tacticalPins, setTacticalPins] = useState([]);
+  const [selectedPinTown, setSelectedPinTown] = useState(null);
+
+  // Viewport tracking for Minimap Radar (Milestone 5)
+  const [currentViewState, setCurrentViewState] = useState({
+    longitude: 0,
+    latitude: 0,
+    zoom: 2
+  });
+
   const mapRef = useRef();
   const rafRef = useRef(null);
   const oceanGrid = useMemo(() => generateOceanGrid(), []);
 
+  // Load world data
   useEffect(() => {
     async function loadData() {
       if (!activeWorldId) return;
@@ -185,6 +219,19 @@ export default function WorldMap() {
 
     loadData();
   }, [activeWorldId]);
+
+  // Load tactical pins for current world
+  useEffect(() => {
+    if (activeWorldId) {
+      setTacticalPins(getTacticalPins(activeWorldId));
+    }
+  }, [activeWorldId]);
+
+  // Raw towns list (for Voronoi, Intel Radar, and Pins)
+  const rawTowns = useMemo(() => {
+    if (!data || !data.features) return [];
+    return data.features.filter(f => f.properties.renderType === 'town');
+  }, [data]);
 
   // Islands feature collection
   const islandsData = useMemo(() => {
@@ -266,40 +313,137 @@ export default function WorldMap() {
     return { type: 'FeatureCollection', features: towns };
   }, [data, showGhostsOnly, highlightedPlayers, highlightedAlliances, customColors]);
 
-  // Arcing Naval Route Line
+  // Voronoi Political Territory GeoJSON (Milestone 1)
+  const voronoiData = useMemo(() => {
+    if (!rawTowns.length || !topAlliances.length) return null;
+    return computeAllianceVoronoi(rawTowns, topAlliances, {
+      customColors,
+      maxRadius: 25.0,
+      minTownCount: 2
+    });
+  }, [rawTowns, topAlliances, customColors]);
+
+  // Contested Frontlines GeoJSON (Milestone 1)
+  const frontlinesData = useMemo(() => {
+    if (!rawTowns.length || !voronoiData) return null;
+    return computeContestedFrontlines(rawTowns, voronoiData);
+  }, [rawTowns, voronoiData]);
+
+  // Alliance Territory Stats for Legend Breakdown (Milestone 1)
+  const allianceTerritoryStats = useMemo(() => {
+    if (!rawTowns.length || !topAlliances.length) return [];
+    const totalEligible = rawTowns.filter(t => {
+      const p = t.properties || t;
+      const a = p.alliance;
+      return a && a !== 'None' && a !== 'Ghost Town';
+    }).length || 1;
+
+    return (topAlliances || []).map(a => {
+      const aTowns = rawTowns.filter(t => {
+        const p = t.properties || t;
+        return p.alliance === a.name || p.allianceId === a.id;
+      }).length;
+
+      return {
+        allianceId: a.id,
+        allianceName: a.name,
+        color: customColors[a.name] || a.color || '#8b5cf6',
+        townCount: aTowns,
+        dominantShare: aTowns / totalEligible,
+        points: a.points
+      };
+    }).sort((a, b) => b.townCount - a.townCount);
+  }, [rawTowns, topAlliances, customColors]);
+
+  // Intel Radar Overlay GeoJSON Collections (Milestone 2)
+  const radarData = useMemo(() => {
+    if (!rawTowns.length) {
+      return {
+        ghosts: { type: "FeatureCollection", features: [] },
+        sieges: { type: "FeatureCollection", features: [] },
+        inactiveFarms: { type: "FeatureCollection", features: [] }
+      };
+    }
+    return filterIntelOverlays(rawTowns, topPlayers, [], radarFilters);
+  }, [rawTowns, topPlayers, radarFilters]);
+
+  // Tactical Pins GeoJSON Feature Collection (Milestone 4)
+  const tacticalPinsGeoJSON = useMemo(() => {
+    if (!tacticalPins.length) return { type: "FeatureCollection", features: [] };
+    const features = tacticalPins.map(pin => {
+      const pinTypeMeta = PIN_TYPES[pin.type] || PIN_TYPES.PRIMARY_TARGET;
+      const priorityMeta = PIN_PRIORITIES[pin.priority] || PIN_PRIORITIES.NORMAL;
+      return {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [Number(pin.lng), Number(pin.lat)]
+        },
+        properties: {
+          pinId: pin.id,
+          townId: pin.townId,
+          townName: pin.townName,
+          type: pin.type,
+          priority: pin.priority,
+          notes: pin.notes,
+          author: pin.author,
+          pinColor: pinTypeMeta.color,
+          pinIcon: pinTypeMeta.icon,
+          priorityRank: priorityMeta.rank
+        }
+      };
+    });
+    return { type: "FeatureCollection", features };
+  }, [tacticalPins]);
+
+  // Arcing Naval Route Line & Transit Generation (Milestone 3)
   const routeLineData = useMemo(() => {
     if (!routeOrigin || !routeTarget) return null;
     const [oLng, oLat] = getTownMapCoordinates(routeOrigin);
     const [tLng, tLat] = getTownMapCoordinates(routeTarget);
 
-    const dLng = tLng - oLng;
-    const dLat = tLat - oLat;
-    const chordLen = Math.sqrt(dLng * dLng + dLat * dLat);
-    if (chordLen === 0) return null;
+    const curvePoints = calculateArcTrajectory(
+      { lng: oLng, lat: oLat },
+      { lng: tLng, lat: tLat },
+      0.20,
+      40
+    );
 
-    const midLng = (oLng + tLng) / 2;
-    const arcHeight = Math.max(chordLen * 0.20, Math.abs(dLng) * 0.12, 0.0008);
-    const midLat = (oLat + tLat) / 2 + arcHeight;
-
-    const points = [];
-    const steps = 40;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const curLng = (1 - t) * (1 - t) * oLng + 2 * (1 - t) * t * midLng + t * t * tLng;
-      const curLat = (1 - t) * (1 - t) * oLat + 2 * (1 - t) * t * midLat + t * t * tLat;
-      points.push([curLng, curLat]);
-    }
+    if (!curvePoints.length) return null;
 
     return {
       type: "FeatureCollection",
       features: [
         {
           type: "Feature",
-          geometry: { type: "LineString", coordinates: points }
+          geometry: { type: "LineString", coordinates: curvePoints }
         }
       ]
     };
   }, [routeOrigin, routeTarget]);
+
+  // Auto-generate animated transit when route is active (Milestone 3)
+  useEffect(() => {
+    if (routeOrigin && routeTarget && routeLineData) {
+      const curve = routeLineData.features[0].geometry.coordinates;
+      const durationSeconds = 30; // 30-second continuous loop simulation
+      const newTransit = {
+        id: `route_transit_${routeOrigin.id}_${routeTarget.id}`,
+        originTownId: routeOrigin.id,
+        targetTownId: routeTarget.id,
+        originName: routeOrigin.name,
+        targetName: routeTarget.name,
+        curveCoordinates: curve,
+        unitType: "bireme",
+        startTime: Date.now(),
+        landingTime: Date.now() + durationSeconds * 1000,
+        durationSeconds
+      };
+      setActiveTransits([newTransit]);
+    } else {
+      setActiveTransits([]);
+    }
+  }, [routeOrigin, routeTarget, routeLineData]);
 
   // Search Selection Handler
   const handleSelectSearchResult = (type, item) => {
@@ -353,6 +497,8 @@ export default function WorldMap() {
         <UnifiedSearchPanel
           worldId={activeWorldId}
           onSelectResult={handleSelectSearchResult}
+          viewMode={viewMode}
+          onToggleViewMode={setViewMode}
           onToggleGhosts={() => setShowGhostsOnly(prev => !prev)}
           showGhostsOnly={showGhostsOnly}
           onToggleRouteTool={() => setIsRouteToolActive(prev => !prev)}
@@ -384,10 +530,19 @@ export default function WorldMap() {
           ]}
           mapStyle={MAP_STYLE}
           onLoad={handleMapLoad}
+          onMove={(e) => {
+            setCurrentViewState({
+              longitude: e.viewState.longitude,
+              latitude: e.viewState.latitude,
+              zoom: e.viewState.zoom
+            });
+          }}
           interactiveLayerIds={[
             "town-points", "town-sprites", "town-flags", 
             "islands-points", "island-sprites", "rocks-points", 
-            "empty-slots-points", "empty-slots-sprites"
+            "empty-slots-points", "empty-slots-sprites",
+            "ghost-radar-markers", "siege-radar-markers", "inactive-farm-markers",
+            "tactical-pin-markers"
           ]}
           onMouseEnter={() => {
             if (mapRef.current) mapRef.current.getCanvas().style.cursor = "pointer";
@@ -436,7 +591,7 @@ export default function WorldMap() {
                     resourceMinus: p.resourceMinus
                   }
                 });
-              } else if (p.renderType === 'town') {
+              } else if (p.renderType === 'town' || p.townId || p.indicatorType === 'ghost_skull') {
                 const norm = normalizeTownData(p);
                 if (feature.geometry?.coordinates) {
                   norm.lng = feature.geometry.coordinates[0];
@@ -459,6 +614,11 @@ export default function WorldMap() {
                 }
                 
                 setSelectedEntity({ type: 'town', data: norm });
+              } else if (p.pinId) {
+                const matchedTown = rawTowns.find(t => (t.id === p.townId || t.properties?.id === p.townId));
+                if (matchedTown) {
+                  setSelectedPinTown(normalizeTownData(matchedTown));
+                }
               }
             }
           }}
@@ -490,7 +650,7 @@ export default function WorldMap() {
             />
           </Source>
 
-          {/* Arcing Naval Route Line Layer */}
+          {/* Arcing Naval Route Line Layer (Milestone 3) */}
           {routeLineData && (
             <Source id="route-line-source" type="geojson" data={routeLineData}>
               <Layer
@@ -510,6 +670,385 @@ export default function WorldMap() {
                   "line-color": "#38bdf8",
                   "line-width": 2.5,
                   "line-dasharray": [3, 2]
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Political Voronoi Alliance Spheres Layer (Milestone 1) */}
+          {voronoiData && (
+            <Source id="voronoi-source" type="geojson" data={voronoiData}>
+              <Layer
+                id="voronoi-spheres-fill"
+                type="fill"
+                beforeId="islands-points"
+                layout={{
+                  visibility: viewMode === 'political' ? 'visible' : 'none'
+                }}
+                paint={{
+                  "fill-color": ["coalesce", ["get", "color"], "#3b82f6"],
+                  "fill-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, politicalOpacity,
+                    5.0, politicalOpacity * 0.85,
+                    8.0, politicalOpacity * 0.6,
+                    10.0, politicalOpacity * 0.35
+                  ],
+                  "fill-antialias": true
+                }}
+              />
+              <Layer
+                id="voronoi-spheres-border"
+                type="line"
+                beforeId="islands-points"
+                layout={{
+                  visibility: viewMode === 'political' ? 'visible' : 'none',
+                  "line-join": "round",
+                  "line-cap": "round"
+                }}
+                paint={{
+                  "line-color": ["coalesce", ["get", "color"], "#3b82f6"],
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 1.0,
+                    5.0, 1.8,
+                    8.0, 2.5
+                  ],
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, Math.min(politicalOpacity + 0.35, 1.0),
+                    5.0, Math.min(politicalOpacity + 0.45, 1.0),
+                    8.0, Math.min(politicalOpacity + 0.25, 0.8)
+                  ],
+                  "line-blur": 1
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Contested Frontlines Layer (Milestone 1) */}
+          {frontlinesData && (
+            <Source id="frontlines-source" type="geojson" data={frontlinesData}>
+              <Layer
+                id="contested-frontline-glow"
+                type="line"
+                beforeId="islands-points"
+                layout={{
+                  visibility: (viewMode === 'political' && showContestedFrontlines) ? 'visible' : 'none',
+                  "line-join": "round",
+                  "line-cap": "round"
+                }}
+                paint={{
+                  "line-color": [
+                    "interpolate", ["linear"], ["coalesce", ["get", "tension"], 0.5],
+                    0.0, "#eab308",
+                    0.5, "#f97316",
+                    1.0, "#ef4444"
+                  ],
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 3.5,
+                    5.0, 6.5,
+                    8.0, 10.0
+                  ],
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 0.80,
+                    5.0, 0.70,
+                    8.0, 0.55
+                  ],
+                  "line-blur": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 2.0,
+                    5.0, 4.0,
+                    8.0, 6.0
+                  ]
+                }}
+              />
+              <Layer
+                id="contested-frontline-lines"
+                type="line"
+                beforeId="islands-points"
+                layout={{
+                  visibility: (viewMode === 'political' && showContestedFrontlines) ? 'visible' : 'none',
+                  "line-join": "round",
+                  "line-cap": "round"
+                }}
+                paint={{
+                  "line-color": "#ffffff",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 1.2,
+                    5.0, 2.0,
+                    8.0, 2.8
+                  ],
+                  "line-opacity": 0.95,
+                  "line-dasharray": [2, 1]
+                }}
+              />
+            </Source>
+          )}
+
+          {/* INTEL RADAR OVERLAYS (Milestone 2) */}
+          {/* 1. Ghost Hunter Radar */}
+          {radarFilters.ghostHunter && radarData.ghosts.features.length > 0 && (
+            <Source id="ghost-radar-source" type="geojson" data={radarData.ghosts}>
+              <Layer
+                id="ghost-radar-glow"
+                type="circle"
+                beforeId="islands-points"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 6,
+                    5.0, 12,
+                    8.0, 20,
+                    10.0, 30
+                  ],
+                  "circle-color": "#06b6d4",
+                  "circle-opacity": 0.45,
+                  "circle-blur": 1.2
+                }}
+              />
+              <Layer
+                id="ghost-radar-markers"
+                type="circle"
+                beforeId="islands-points"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 3.0,
+                    5.0, 6.0,
+                    8.0, 9.0,
+                    10.0, 13
+                  ],
+                  "circle-color": "#22d3ee",
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "#083344",
+                  "circle-opacity": 0.95
+                }}
+              />
+              <Layer
+                id="ghost-radar-labels"
+                type="symbol"
+                minzoom={6.0}
+                beforeId="islands-points"
+                layout={{
+                  "text-field": [
+                    "concat",
+                    "👻 ",
+                    ["to-string", ["get", "estimatedVacancyDays"]],
+                    "d (",
+                    ["to-string", ["get", "points"]],
+                    "p)"
+                  ],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": 10,
+                  "text-offset": [0, 1.8],
+                  "text-anchor": "top",
+                  "text-optional": true
+                }}
+                paint={{
+                  "text-color": "#67e8f9",
+                  "text-halo-color": "#083344",
+                  "text-halo-width": 2
+                }}
+              />
+            </Source>
+          )}
+
+          {/* 2. Active Siege Radar */}
+          {radarFilters.activeSiege && radarData.sieges.features.length > 0 && (
+            <Source id="siege-radar-source" type="geojson" data={radarData.sieges}>
+              <Layer
+                id="siege-radar-halo"
+                type="circle"
+                beforeId="islands-points"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 8,
+                    5.0, 16,
+                    8.0, 26,
+                    10.0, 38
+                  ],
+                  "circle-color": "#f43f5e",
+                  "circle-opacity": 0.5,
+                  "circle-blur": 1.4
+                }}
+              />
+              <Layer
+                id="siege-radar-markers"
+                type="circle"
+                beforeId="islands-points"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 4.0,
+                    5.0, 7.0,
+                    8.0, 11.0,
+                    10.0, 15
+                  ],
+                  "circle-color": "#e11d48",
+                  "circle-stroke-width": 2.5,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-opacity": 1.0
+                }}
+              />
+              <Layer
+                id="siege-radar-labels"
+                type="symbol"
+                minzoom={5.5}
+                beforeId="islands-points"
+                layout={{
+                  "text-field": [
+                    "concat",
+                    "⚔️ SIEGE (",
+                    ["to-string", ["get", "recentConquestCount"]],
+                    ")"
+                  ],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": 10,
+                  "text-offset": [0, 1.8],
+                  "text-anchor": "top",
+                  "text-optional": true
+                }}
+                paint={{
+                  "text-color": "#fda4af",
+                  "text-halo-color": "#4c0519",
+                  "text-halo-width": 2
+                }}
+              />
+            </Source>
+          )}
+
+          {/* 3. Inactive Farm Finder */}
+          {radarFilters.inactiveFarms && radarData.inactiveFarms.features.length > 0 && (
+            <Source id="inactive-farm-source" type="geojson" data={radarData.inactiveFarms}>
+              <Layer
+                id="inactive-farm-glow"
+                type="circle"
+                beforeId="islands-points"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 5,
+                    5.0, 11,
+                    8.0, 19,
+                    10.0, 26
+                  ],
+                  "circle-color": "#f59e0b",
+                  "circle-opacity": 0.45,
+                  "circle-blur": 1.2
+                }}
+              />
+              <Layer
+                id="inactive-farm-markers"
+                type="circle"
+                beforeId="islands-points"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 3.0,
+                    5.0, 5.5,
+                    8.0, 8.5,
+                    10.0, 12
+                  ],
+                  "circle-color": "#fbbf24",
+                  "circle-stroke-width": 1.5,
+                  "circle-stroke-color": "#78350f",
+                  "circle-opacity": 0.95
+                }}
+              />
+              <Layer
+                id="inactive-farm-labels"
+                type="symbol"
+                minzoom={6.0}
+                beforeId="islands-points"
+                layout={{
+                  "text-field": [
+                    "concat",
+                    "💤 [",
+                    ["get", "farmRating"],
+                    "] ",
+                    ["to-string", ["get", "points"]],
+                    "p"
+                  ],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": 10,
+                  "text-offset": [0, 1.8],
+                  "text-anchor": "top",
+                  "text-optional": true
+                }}
+                paint={{
+                  "text-color": "#fde68a",
+                  "text-halo-color": "#451a03",
+                  "text-halo-width": 2
+                }}
+              />
+            </Source>
+          )}
+
+          {/* TACTICAL ALLIANCE PINS LAYER (Milestone 4) */}
+          {tacticalPinsGeoJSON.features.length > 0 && (
+            <Source id="tactical-pins-source" type="geojson" data={tacticalPinsGeoJSON}>
+              <Layer
+                id="tactical-pins-glow"
+                type="circle"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 7,
+                    5.0, 14,
+                    8.0, 24,
+                    10.0, 34
+                  ],
+                  "circle-color": ["coalesce", ["get", "pinColor"], "#ef4444"],
+                  "circle-opacity": 0.5,
+                  "circle-blur": 1.2
+                }}
+              />
+              <Layer
+                id="tactical-pin-markers"
+                type="circle"
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 4,
+                    5.0, 7.5,
+                    8.0, 11,
+                    10.0, 16
+                  ],
+                  "circle-color": ["coalesce", ["get", "pinColor"], "#ef4444"],
+                  "circle-stroke-width": 2.5,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-opacity": 1.0
+                }}
+              />
+              <Layer
+                id="tactical-pin-labels"
+                type="symbol"
+                minzoom={5.0}
+                layout={{
+                  "text-field": [
+                    "concat",
+                    ["get", "pinIcon"],
+                    " ",
+                    ["get", "townName"],
+                    " [",
+                    ["get", "priority"],
+                    "]"
+                  ],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": 11,
+                  "text-offset": [0, -2.2],
+                  "text-anchor": "bottom",
+                  "text-optional": true
+                }}
+                paint={{
+                  "text-color": "#ffffff",
+                  "text-halo-color": "#0b101e",
+                  "text-halo-width": 2.5
                 }}
               />
             </Source>
@@ -808,6 +1347,9 @@ export default function WorldMap() {
             </Source>
           )}
 
+          {/* Animated Troop Movement & Trajectory Tracker Layer (Milestone 3) */}
+          <AnimatedTroopLayer transits={activeTransits} />
+
           {/* Hover Tooltip */}
           {hoverInfo && (
             <Popup
@@ -819,10 +1361,10 @@ export default function WorldMap() {
               offset={14}
             >
               <div className="glass-panel" style={{ padding: '1rem', minWidth: '220px', borderRadius: '8px' }}>
-                {hoverInfo.feature.properties.renderType === 'town' && (
+                {(hoverInfo.feature.properties.renderType === 'town' || hoverInfo.feature.properties.townId) && (
                   <>
                     <div className="flex items-center justify-between gap-2" style={{ marginBottom: '0.35rem' }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '1.05rem', color: '#f8fafc' }}>{hoverInfo.feature.properties.name}</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '1.05rem', color: '#f8fafc' }}>{hoverInfo.feature.properties.name || hoverInfo.feature.properties.townName}</div>
                       <span style={{ 
                         fontSize: '0.68rem', 
                         padding: '2px 6px', 
@@ -835,17 +1377,49 @@ export default function WorldMap() {
                         {['', 'Stage 1 • Hamlet', 'Stage 2 • Village', 'Stage 3 • Town', 'Stage 4 • City', 'Stage 5 • Metropolis'][hoverInfo.feature.properties.stage || 1]}
                       </span>
                     </div>
-                    <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Player: <span style={{ color: 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.player}</span></div>
-                    <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Alliance: <span style={{ color: hoverInfo.feature.properties.townColor || 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.alliance}</span></div>
+                    {hoverInfo.feature.properties.player && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Player: <span style={{ color: 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.player}</span></div>
+                    )}
+                    {hoverInfo.feature.properties.alliance && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Alliance: <span style={{ color: hoverInfo.feature.properties.townColor || 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.alliance}</span></div>
+                    )}
                     
                     <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.8rem' }}>
                       <span style={{ color: '#10b981', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                        {Number(hoverInfo.feature.properties.points).toLocaleString()} pts
+                        {Number(hoverInfo.feature.properties.points || 0).toLocaleString()} pts
                       </span>
                       <span style={{ color: '#94a3b8' }}>
                         Slot #{hoverInfo.feature.properties.islandSlot ?? '0'} ({String(hoverInfo.feature.properties.dir || 'NW').toUpperCase()})
                       </span>
                     </div>
+
+                    {/* Radar Context Information */}
+                    {hoverInfo.feature.properties.indicatorType === 'ghost_skull' && (
+                      <div className="mt-2 pt-2 border-t border-cyan-500/30 text-[11px] bg-cyan-950/30 p-1.5 rounded-lg border border-cyan-500/20">
+                        <div className="flex justify-between text-cyan-300 font-bold">
+                          <span>👻 Ghost Town</span>
+                          <span className="font-mono">~{hoverInfo.feature.properties.estimatedVacancyDays}d vacant</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {hoverInfo.feature.properties.isContested && (
+                      <div className="mt-2 pt-2 border-t border-rose-500/30 text-[11px] bg-rose-950/30 p-1.5 rounded-lg border border-rose-500/20">
+                        <div className="flex justify-between text-rose-300 font-bold">
+                          <span>⚔️ Active Siege Hotspot</span>
+                          <span className="font-mono">{hoverInfo.feature.properties.recentConquestCount} conquests</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {hoverInfo.feature.properties.farmRating && (
+                      <div className="mt-2 pt-2 border-t border-amber-500/30 text-[11px] bg-amber-950/30 p-1.5 rounded-lg border border-amber-500/20">
+                        <div className="flex justify-between text-amber-300 font-bold">
+                          <span>💤 Inactive Farm [{hoverInfo.feature.properties.farmRating}]</span>
+                          <span className="font-mono">{hoverInfo.feature.properties.momentumDelta} pts</span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
                 {(hoverInfo.feature.properties.renderType === 'island' || hoverInfo.feature.properties.renderType === 'rock') && (
@@ -879,7 +1453,21 @@ export default function WorldMap() {
         </Map>
       </div>
 
-      {/* Floating Route Planner Tool */}
+      {/* Floating Tactical Intel Radar Controls HUD (Milestone 2) */}
+      <div className="absolute top-20 left-4 z-30 pointer-events-auto">
+        <IntelRadarControls
+          filters={radarFilters}
+          onChange={setRadarFilters}
+          counts={{
+            ghosts: radarData.ghosts.features.length,
+            sieges: radarData.sieges.features.length,
+            inactiveFarms: radarData.inactiveFarms.features.length,
+            total: radarData.ghosts.features.length + radarData.sieges.features.length + radarData.inactiveFarms.features.length
+          }}
+        />
+      </div>
+
+      {/* Floating Route Planner Tool (Milestone 3) */}
       {isRouteToolActive && (
         <RoutePlannerTool
           origin={routeOrigin}
@@ -899,6 +1487,52 @@ export default function WorldMap() {
         />
       )}
 
+      {/* Floating Political Heatmap Legend (Milestone 1) */}
+      {viewMode === 'political' && (
+        <div className="absolute top-20 right-4 z-30 pointer-events-auto">
+          <PoliticalHeatmapLegend
+            territories={allianceTerritoryStats}
+            customColors={customColors}
+            onColorChange={(allyName, color) => setCustomColors(prev => ({ ...prev, [allyName]: color }))}
+            opacity={politicalOpacity}
+            onOpacityChange={setPoliticalOpacity}
+            showContestedFrontlines={showContestedFrontlines}
+            onToggleContestedFrontlines={() => setShowContestedFrontlines(prev => !prev)}
+            highlightedAlliance={highlightedAllianceVoronoi}
+            onHighlightAlliance={(allyName) => {
+              setHighlightedAllianceVoronoi(allyName);
+              if (allyName) {
+                const color = customColors[allyName] || topAlliances.find(a => a.name === allyName)?.color || '#8b5cf6';
+                setHighlightedAlliances({ [allyName]: color });
+              } else {
+                setHighlightedAlliances({});
+              }
+            }}
+            onAllianceClick={(ally) => setSelectedEntity({ type: 'alliance', data: ally })}
+            contestedFrontlineCount={frontlinesData?.features?.filter(f => f.properties?.isContestedIsland || f.properties?.tension > 0)?.length || 0}
+          />
+        </div>
+      )}
+
+      {/* Floating Interactive Minimap Radar Widget (Milestone 5) */}
+      <div className="absolute bottom-4 left-4 z-30 pointer-events-auto">
+        <MinimapRadar
+          towns={rawTowns}
+          alliances={topAlliances}
+          viewState={currentViewState}
+          onNavigate={({ lng, lat }) => {
+            if (mapRef.current) {
+              mapRef.current.flyTo({
+                center: [lng, lat],
+                zoom: 7.5,
+                duration: 800,
+                essential: true
+              });
+            }
+          }}
+        />
+      </div>
+
       {/* Sliding Intelligence Command Drawer */}
       {selectedEntity && (
         <CommandDrawer
@@ -915,7 +1549,25 @@ export default function WorldMap() {
             setRouteTarget(town);
             setIsRouteToolActive(true);
           }}
+          onOpenPinModal={(town) => setSelectedPinTown(town)}
           customColors={customColors}
+        />
+      )}
+
+      {/* Tactical Operation Pin Modal (Milestone 4) */}
+      {selectedPinTown && (
+        <TacticalPinModal
+          isOpen={Boolean(selectedPinTown)}
+          onClose={() => setSelectedPinTown(null)}
+          town={selectedPinTown}
+          existingPin={tacticalPins.find(p => p.townId === selectedPinTown.id)}
+          worldId={activeWorldId}
+          onPinSaved={(newPin, allPins) => setTacticalPins(allPins)}
+          onPinDeleted={(delId) => setTacticalPins(prev => prev.filter(p => p.id !== delId))}
+          onExportToPlanner={(planTarget) => {
+            setRouteTarget(planTarget);
+            setIsRouteToolActive(true);
+          }}
         />
       )}
 

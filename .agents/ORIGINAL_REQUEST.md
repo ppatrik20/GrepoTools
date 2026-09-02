@@ -1,56 +1,63 @@
 # Original User Request
 
-## 2026-08-30T18:44:15Z
+## 2026-09-02T16:55:48Z
 
-# Complete the Next-Generation Grepolis World Map & Command Center
+# Next-Generation Grepolis World Map: Tactical Command Suite & Intelligence Overlays
 
 Working directory: d:\Dev\Web\Grepolis
 Integrity mode: development
 
-Transform the Grepolis World Map into a high-performance, pixel-accurate tactical command viewer and intelligence suite in Next.js / MapLibre GL.
+Transform the Grepolis World Map into a comprehensive, military-grade strategy command viewer featuring political territory influence heatmaps, intel radar overlays, animated troop transit trajectories, alliance tactical pinboards, and a global minimap radar.
 
 ## Requirements
 
-### R1. Complete 4K Asset Pipeline & Pixel-Perfect Terrain Alignment
-- Standardize and load all 40 island terrain types(`island_1` to `island_60`), all 5 town growth stages (`town_1` Hamlet to `town_5` Metropolis), and empty colonization slot icons (`empty_slot`).
-- Ensure all sprites load dynamically with zero missing image warnings or WebGL canvas dropouts.
-- Eliminate synthetic ring fallbacks on all islands that have official town slot definitions, positioning towns and colonization slots along coastal bay shorelines.
-- Scale island landmasses and town sprites using the calibrated physical proportion curve ($\delegated 0.007 \times 2^Z*) so towns remain locked to their shoreline bays across zoom levels 5 to 12.
+### R1. Political & Frontline Heatmaps (Voronoi Alliance Spheres of Influence)
+- Render dynamic, GPU-accelerated alliance territory polygons (Voronoi cells or convex boundary hulls) based on town ownership, tinted with official alliance hex colors.
+- Visually demarcate core alliance territory vs. high-tension contested frontline border zones where rival coalitions clash.
+- Provide an interactive map toggle in the top control panel switching between **Geographic View** and **Political / Frontline View**.
 
-### R2. In-Map Tactical & Intelligence Command Suite
-- Deliver a floating top-center search bar with instant categorized autocomplete (Players, Alliances, Towns, Coordinates e.g. `503, 479`) with full keyboard navigation (Arrow Up/Down, Enter, Esc, and `Ctrl+K` focus).
-- Provide a persistent sliding intelligence drawer (`CommandDrawer`) that displays city stats, growth stages, island slot distributions, player battle points (ABP/DBP), and 7-day momentum charts while keeping the map fully interactive.
-- Ensure all entity selections and searches handle nested player/alliance objects safely without React child rendering crashes.
+### R2. Conquest & Intel Radar Overlays
+- Build dedicated, toggleable tactical radar overlays:
+  - **👻 Ghost Hunter Radar**: Highlights unowned/ghost towns with point indicators and vacancy age.
+  - **⚔️ Active Siege / Contest Radar**: Highlights contested towns or islands undergoing heavy ownership shifts.
+  - **💤 Inactive Farm Finder**: Identifies inactive players with low point momentum for rapid raid targeting.
 
-### R3. Real-Time Troop Route & Distance Tool
-- Provide an interactive naval and mythical troop travel time calculator.
-- Calculate accurate travel times for both same-island transit (slot separation distance) and inter-island nautical voyages using official Grepolis speed formulas scaled by active world speeds.
-- Render an arcing dashed flight/naval trajectory line on MapLibre between selected origin and target cities.
-- Provide a one-click action linking origin and target cities into the Recall Sniper tool (`/snipe`).
+### R3. Animated Troop Movement & Trajectory Tracker
+- Upgrade the Route Planner to render smooth, animated travel trajectories (visual ship and mythical flying unit sprites gliding along the arcing Bézier flight paths).
+- Include live ETA countdown timers floating above the travelling unit icons.
+- Support multi-origin sniping paths to coordinate coordinated landings on a single target city.
 
-### R4. Multi-LOD Layer Stack & Alliance Flags
-- Render clustered density bubbles at macro zoom (zoom 2 to 5.5).
-- Transition smoothly to 4K island landmasses at zoom ≥ 5.0.
-- Render 3D architectural town models and empty slots at zoom ≥ 6.5.
-- Display dynamic alliance flag badges floating directly above 3D town models tinted with live alliance hex colors at zoom ≥ 6.8.
-- Display town name labels with high-contrast halos at zoom ≥ 8.5.
+### R4. Tactical Alliance Pinboard & Operation Markers
+- Provide a collaborative in-map pinboard system allowing players to drop tactical markers on any town or coordinate:
+  - Operation Pins: `Primary Target`, `Secondary Target`, `Stack Biremes`, `Break Siege`.
+  - Custom notes and priority tags (`Critical`, `High`, `Normal`).
+  - One-click export to the Recall Sniper (`/snipe`) and Planner tools.
+
+### R5. Interactive Minimap Radar Widget
+- Embed a draggable/collapsible minimap radar widget in the bottom corner showing the full 1000x1000 world overview with active viewport camera rectangle.
+- Clicking or dragging anywhere on the minimap immediately pans the main MapLibre camera to that ocean sector.
 
 ## Acceptance Criteria
 
-### Asset Integrity & Rendering
-- [ ] MapLibre loads all island sprites, town stage sprites, and empty slot foundations with zero console warnings (`styleimagemissing` clean).
-- [ ] No square background box artifacts on any sprite (all assets have clean alpha cutouts).
-- [ ] Island landmasses and coastal town slots visually align in correct proportions across zoom levels 6 through 12.
+### Political & Frontline Heatmaps
+- [ ] Toggling "Political View" renders smooth, semi-transparent Voronoi / boundary polygons color-coded by top alliances without tanking frame rate (60 FPS maintained).
+- [ ] Islands with multiple rival alliances show highlighted contested boundary outlines.
 
-### Command Suite & Search
-- [ ] Search input supports keyboard navigation (`ArrowDown`, `ArrowUp`, `Enter`, `Escape`) and selects items without page reload or errors.
-- [ ] Searching or clicking towns, players, alliances, or coordinates never crashes React with object child errors.
-- [ ] Selecting an entity opens the sliding intelligence drawer without obscuring the full map view.
+### Intel Radar Overlays
+- [ ] "Ghost Hunter" filter clearly distinguishes ghost towns from player towns with prominent custom markers.
+- [ ] Inactive / farm radar highlights low-momentum targets with instant filter controls.
 
-### Route Planner
-- [ ] Selecting two towns displays distinct, realistic travel durations for all naval fleet units (Biremes, Light Ships, Colony Ships) and flying mythical units (Pegasus, Harpy, Manticore, Griffin).
-- [ ] Same-island movements calculate realistic on-island transit durations (2–30 mins) rather than 0 or a static 1 min clamp.
-- [ ] Inter-island movements calculate exact Euclidean travel times matching Grepolis formulas.
+### Animated Troop Tracker & Transit
+- [ ] Calculating a route displays an animated unit icon (naval ship or mythical flyer) traversing the arcing trajectory.
+- [ ] Arrival countdown displays real-time seconds ticking down to zero.
+
+### Tactical Pinboard & Operations
+- [ ] Clicking any town allows adding or removing a tactical operation pin (`Primary Target`, `Bireme Bunker`, etc.).
+- [ ] Pins persist across sessions (in local storage or database) and render distinctly above town sprites.
+
+### Minimap Radar Widget
+- [ ] Bottom radar displays global island distribution with an interactive bounding box indicating current viewport.
+- [ ] Clicking any sector on the radar smoothly centers the main map on those coordinates.
 
 ### Production Build & Stability
-- [ ] `npm run build && prisma generate` passes with 0 TypeScript/Next.js errors.
+- [ ] `npm run build && prisma generate` compiles cleanly with 0 TypeScript/Next.js errors.

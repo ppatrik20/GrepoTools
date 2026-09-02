@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Maximize2, MapPin, Castle, Trophy, Users, Swords, Shield, 
-  Copy, ExternalLink, Navigation, Compass
+  Copy, ExternalLink, Navigation, Compass, Pin
 } from 'lucide-react';
 import { normalizeTownData } from './UnifiedSearchPanel';
 
@@ -15,6 +15,7 @@ export default function CommandDrawer({
   onSelectEntity,
   onSetRouteOrigin,
   onSetRouteTarget,
+  onOpenPinModal,
   customColors = {}
 }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -178,7 +179,7 @@ export default function CommandDrawer({
               </div>
             </div>
 
-            {/* Route Planning Buttons */}
+            {/* Route Planning & Tactical Operations Buttons */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => onSetRouteOrigin?.(town)}
@@ -193,6 +194,13 @@ export default function CommandDrawer({
                 <Compass size={14} /> Set as Target
               </button>
             </div>
+
+            <button
+              onClick={() => onOpenPinModal?.(town)}
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 text-xs font-bold transition-all"
+            >
+              <Pin size={14} /> Drop / Edit Tactical Pin
+            </button>
 
             {/* Quick BB-Code Copy */}
             <button

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Loader2, MapPin, Users, Trophy, Castle, Ghost, Navigation, Compass } from 'lucide-react';
+import { Search, X, Loader2, MapPin, Users, Trophy, Castle, Ghost, Navigation, Compass, Globe, Shield } from 'lucide-react';
 
 export function normalizeTownData(rawTown) {
   if (!rawTown) return null;
@@ -35,6 +35,8 @@ export function normalizeTownData(rawTown) {
 export default function UnifiedSearchPanel({
   worldId = 'hu119',
   onSelectResult,
+  viewMode = 'geographic',
+  onToggleViewMode,
   onToggleGhosts,
   showGhostsOnly,
   onToggleRouteTool,
@@ -189,6 +191,34 @@ export default function UnifiedSearchPanel({
         <kbd className="hidden sm:inline-block text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
           Ctrl+K
         </kbd>
+      </div>
+
+      {/* Map View Mode Switch: Geographic vs Political */}
+      <div className="flex items-center bg-slate-950/80 p-0.5 rounded-xl border border-slate-700/80 shadow-inner backdrop-blur-md">
+        <button
+          onClick={() => onToggleViewMode && onToggleViewMode('geographic')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            viewMode === 'geographic'
+              ? 'bg-blue-600/30 text-blue-300 border border-blue-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+          }`}
+          title="Geographic View (Standard Islands & Topography)"
+        >
+          <Globe size={14} className={viewMode === 'geographic' ? 'text-blue-400' : 'text-slate-400'} />
+          <span className="hidden md:inline">Geo</span>
+        </button>
+        <button
+          onClick={() => onToggleViewMode && onToggleViewMode('political')}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            viewMode === 'political'
+              ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+          }`}
+          title="Political & Frontline View (Alliance Voronoi Spheres & Contested Borders)"
+        >
+          <Shield size={14} className={viewMode === 'political' ? 'text-purple-400 animate-pulse' : 'text-slate-400'} />
+          <span className="hidden md:inline">Political</span>
+        </button>
       </div>
 
       {/* Quick Action Buttons */}

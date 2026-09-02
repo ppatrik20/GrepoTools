@@ -1,27 +1,46 @@
-# E2E Test Infra: Next-Generation Grepolis World Map & Command Center
+# E2E Test Infra: Next-Generation Grepolis World Map Tactical Command Suite
 
 ## Test Philosophy
-- Opaque-box, requirement-driven verification across all 4 core requirement areas + production stability.
-- Methodology: Feature Coverage + Boundary Value Analysis + Adversarial Stress Testing + Forensic Audit.
+- Opaque-box, requirement-driven. No dependency on implementation design.
+- Derived directly from `ORIGINAL_REQUEST.md` acceptance criteria across R1 through R5.
+- Methodology: Category-Partition + Boundary Value Analysis + Pairwise Combinatorial + Real-World Workload Testing.
 
-## Acceptance Criteria Checklist
-| Requirement | Description | Status |
-|-------------|-------------|--------|
-| R1.1 | All 40 colonizable island sprites (`island_1`–`island_16`, `island_37`–`island_60`) load cleanly in MapLibre | VERIFIED |
-| R1.2 | All 5 town stages (`town_1`–`town_5`) and `empty_slot` load with 0 missing image warnings | VERIFIED |
-| R1.3 | Clean alpha cutouts: No square box artifacts on any sprite (including `island_1.png`) | VERIFIED |
-| R1.4 | Official shoreline bay town slot alignment: zero synthetic ring fallback on colonizable islands | VERIFIED |
-| R1.5 | Calibrated physical proportion curve ($0.007 \times 2^Z$) across zoom levels 5 to 12 | VERIFIED |
-| R2.1 | Floating top-center search bar with 200ms debouncing and coordinate parsing (`503, 479`) | VERIFIED |
-| R2.2 | Full keyboard navigation (`Ctrl+K`, `ArrowUp`, `ArrowDown`, `Enter`, `Escape`) | VERIFIED |
-| R2.3 | Sliding CommandDrawer (`420px`) keeping MapLibre canvas 100% interactive | VERIFIED |
-| R2.4 | Safe nested object rendering (no React child crash errors) | VERIFIED |
-| R3.1 | Real-time travel time calculation for 6 naval and 4 flying mythical units with active world speeds | VERIFIED |
-| R3.2 | Realistic same-island slot separation transit durations (2–30+ mins) | VERIFIED |
-| R3.3 | Inter-island Euclidean Grepolis travel time formula | VERIFIED |
-| R3.4 | 40-step quadratic Bézier arcing trajectory visualization with glow aura | VERIFIED |
-| R3.5 | One-click `/snipe` linkage and parameter ingestion with Suspense | VERIFIED |
-| R4.1 | Multi-LOD layer transitions (clusters z2-5.5, landmasses z>=5.0, 3D towns z>=6.5, flags z>=6.8, labels z>=8.5) | VERIFIED |
-| R5.1 | `npm run build && prisma generate` compiles with 0 TypeScript/Next.js errors | VERIFIED |
-| R5.2 | Automated vitest test suites pass 100% (57/57 tests passing) | VERIFIED |
-| R5.3 | Forensic Integrity Audit: CLEAN (0 violations) | VERIFIED |
+## Feature Inventory
+| # | Feature | Source (requirement) | Tier 1 (Coverage) | Tier 2 (Boundary) | Tier 3 (Pairwise) | Tier 4 (Workload) |
+|---|---|---|:---:|:---:|:---:|:---:|
+| F1 | Political Voronoi Territory Heatmaps | ORIGINAL_REQUEST §R1 | ≥5 | ≥5 | ✓ | ✓ |
+| F2 | Contested Frontline Border Outlines | ORIGINAL_REQUEST §R1 | ≥5 | ≥5 | ✓ | ✓ |
+| F3 | Map Control Panel Mode Toggle | ORIGINAL_REQUEST §R1 | ≥5 | ≥5 | ✓ | ✓ |
+| F4 | Ghost Hunter Radar Overlay | ORIGINAL_REQUEST §R2 | ≥5 | ≥5 | ✓ | ✓ |
+| F5 | Active Siege / Contest Radar | ORIGINAL_REQUEST §R2 | ≥5 | ≥5 | ✓ | ✓ |
+| F6 | Inactive Farm Finder Overlay | ORIGINAL_REQUEST §R2 | ≥5 | ≥5 | ✓ | ✓ |
+| F7 | Bézier Route Trajectory Upgrade | ORIGINAL_REQUEST §R3 | ≥5 | ≥5 | ✓ | ✓ |
+| F8 | Animated Troop Transit Sprites | ORIGINAL_REQUEST §R3 | ≥5 | ≥5 | ✓ | ✓ |
+| F9 | Live ETA Countdown Timers | ORIGINAL_REQUEST §R3 | ≥5 | ≥5 | ✓ | ✓ |
+| F10 | Multi-Origin Sniping Coordination | ORIGINAL_REQUEST §R3 | ≥5 | ≥5 | ✓ | ✓ |
+| F11 | Tactical Operation Pin Markers | ORIGINAL_REQUEST §R4 | ≥5 | ≥5 | ✓ | ✓ |
+| F12 | Custom Notes & Priority Tagging | ORIGINAL_REQUEST §R4 | ≥5 | ≥5 | ✓ | ✓ |
+| F13 | One-Click Export to Sniper/Planner | ORIGINAL_REQUEST §R4 | ≥5 | ≥5 | ✓ | ✓ |
+| F14 | 1000x1000 Minimap Radar Widget | ORIGINAL_REQUEST §R5 | ≥5 | ≥5 | ✓ | ✓ |
+| F15 | Minimap Click & Drag Camera Sync | ORIGINAL_REQUEST §R5 | ≥5 | ≥5 | ✓ | ✓ |
+
+## Test Architecture
+- Test Runner: `vitest` (`npx vitest run tests/e2e/tactical_suite.test.js` and component test suites).
+- Test file location: `tests/e2e/tactical_suite.test.js` and `src/lib/map/*.test.js`.
+- Test data: Synthetic multi-alliance world models with ghost towns, active sieges, inactive farms, multi-origin troop routes, tactical pins, and 1000x1000 coordinate bounds.
+
+## Real-World Application Scenarios (Tier 4)
+| # | Scenario | Features Exercised | Complexity |
+|---|---|---|---|
+| 1 | Large-scale Coalition World War Operation | F1, F2, F3, F11, F12, F13, F10 | High |
+| 2 | Island Siege Defense & Multi-Origin Bireme Sniping | F5, F8, F9, F10, F11, F13 | High |
+| 3 | Rapid Ocean Ghost Hunting & Inactive Farming Sweep | F4, F6, F14, F15 | Medium |
+| 4 | Deep Sea Transit Trajectory Planning & Minimap Navigation | F7, F8, F9, F14, F15 | Medium |
+| 5 | Cross-Ocean Alliance Frontline Shift & Pinboard Coordination | F1, F2, F11, F12, F13 | High |
+
+## Coverage Thresholds
+- Tier 1: ≥75 test cases (5 × 15 features)
+- Tier 2: ≥75 test cases (5 × 15 boundary cases)
+- Tier 3: ≥15 pairwise combination tests
+- Tier 4: ≥8 realistic application workload scenarios
+- **Total Minimum Target**: ≥173 test assertions
