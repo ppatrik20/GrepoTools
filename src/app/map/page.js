@@ -590,14 +590,13 @@ export default function WorldMap() {
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    5, 0.224,
-                    6, 0.448,
-                    7, 0.896,
-                    8, 1.792,
-                    9, 3.584,
-                    10, 7.168,
-                    11, 14.336,
-                    12, 28.672
+                    5, 0.18,
+                    6, 0.36,
+                    7, 0.72,
+                    8, 1.44,
+                    9, 2.88,
+                    10, 5.76,
+                    11, 11.52
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -607,23 +606,22 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Rocks Layer */}
+          {/* Rocks Layer (Subtle reefs at Zoom >= 6.0) */}
           {rocksData && (
             <Source id="rocks-source" type="geojson" data={rocksData}>
               <Layer 
                 id="rocks-points"
                 type="circle"
-                minzoom={2}
-                maxzoom={6.5}
+                minzoom={6.0}
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
-                    2, 1.5,
-                    5, 4.5,
-                    6.5, 7
+                    6.0, 1.5,
+                    8.0, 3.0,
+                    10.0, 5.0
                   ],
                   "circle-color": ["get", "islandColor"],
-                  "circle-opacity": 0.4,
+                  "circle-opacity": 0.3,
                   "circle-stroke-width": 1,
                   "circle-stroke-color": "#0f172a"
                 }}
@@ -632,39 +630,32 @@ export default function WorldMap() {
           )}
 
           {/* Empty Colonization Slots Layer */}
-          {emptySlotsData && (
+          {showSlots && emptySlotsData && (
             <Source id="empty-slots-source" type="geojson" data={emptySlotsData}>
-              <Layer 
-                id="empty-slots-points"
-                type="circle"
-                minzoom={5.5}
-                maxzoom={7.0}
-                paint={{
-                  "circle-radius": 2.5,
-                  "circle-color": "#ffffff",
-                  "circle-opacity": 0.4,
-                  "circle-stroke-width": 1,
-                  "circle-stroke-color": "#94a3b8"
-                }}
-              />
               <Layer
                 id="empty-slots-sprites"
                 type="symbol"
-                minzoom={6.8}
+                minzoom={7.2}
                 layout={{
                   "icon-image": "empty_slot",
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    6.8, 0.10,
-                    7.5, 0.20,
-                    8.5, 0.40,
-                    9.5, 0.80,
-                    10.5, 1.60,
-                    11.5, 3.20
+                    7.2, 0.08,
+                    8.5, 0.16,
+                    9.5, 0.32,
+                    10.5, 0.64,
+                    11.5, 1.28
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
                   "icon-anchor": "center"
+                }}
+                paint={{
+                  "icon-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    7.2, 0.6,
+                    8.5, 0.9
+                  ]
                 }}
               />
             </Source>
