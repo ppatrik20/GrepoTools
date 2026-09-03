@@ -25,7 +25,7 @@ export default function IntelRadarControls({
   counts = { ghosts: 0, sieges: 0, inactiveFarms: 0, total: 0 },
   className = ""
 }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const activeFilters = { ...DEFAULT_RADAR_FILTERS, ...filters };
   const totalDetected = (counts.ghosts || 0) + (counts.sieges || 0) + (counts.inactiveFarms || 0);

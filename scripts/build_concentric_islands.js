@@ -9,6 +9,10 @@ async function buildPixelPerfectIslands() {
   if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
   const alignmentMetadata = {};
+  const canvasSize = 512;
+  const canvasCenter = 256;
+
+  console.log('Building mathematically locked island sprites...');
 
   for (let type = 1; type <= 60; type++) {
     const def = defs[type];
@@ -19,7 +23,7 @@ async function buildPixelPerfectIslands() {
 
     const { data, info } = await sharp(srcFile).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
 
-    // Step 1: Remove cyan ocean water
+    // Step 1: Remove cyan ocean water (#1f6496)
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
       if (a === 0) continue;
@@ -32,9 +36,13 @@ async function buildPixelPerfectIslands() {
         const factor = Math.max(0, Math.min(1, (r + 28 - b) / 20));
         data[i + 3] = Math.round(a * factor);
       }
+
+      if (data[i + 3] <= 30) {
+        data[i + 3] = 0;
+      }
     }
 
-    // Step 2: Find visual landmass bounding box
+    // Step 2: Find visual landmass bounding box in raw PNG
     let minX = info.width, maxX = 0, minY = info.height, maxY = 0;
     for (let y = 0; y < info.height; y++) {
       for (let x = 0; x < info.width; x++) {
@@ -58,7 +66,7 @@ async function buildPixelPerfectIslands() {
     const cropW = Math.min(info.width - cropX, (maxX - minX) + 8);
     const cropH = Math.min(info.height - cropY, (maxY - minY) + 8);
 
-    // Step 3: Town bounds
+    // Step 3: Town bounds in game pixels
     const minTownX = Math.min(...def.town_offsets.map(t => t.x));
     const maxTownX = Math.max(...def.town_offsets.map(t => t.x));
     const minTownY = Math.min(...def.town_offsets.map(t => t.y));
@@ -77,24 +85,25 @@ async function buildPixelPerfectIslands() {
       townSpanY
     };
 
-    // Step 4: Scale cropped landmass to fit 460x460 inside 512x512 canvas
-    const canvasSize = 512;
-    const targetLandSize = 440; // Leave 36px margin for coastal town models!
-    const scaleFactor = Math.min(targetLandSize / cropW, targetLandSize / cropH);
-    const scaledW = Math.round(cropW * scaleFactor);
-    const scaledH = Math.round(cropH * scaleFactor);
+    // Step 4: True Physical Scaling
+    // 1 canvas pixel = 2 game pixels.
+    const targetCanvasW = Math.round((townSpanX / 2) * 1.14);
+    const targetCanvasH = Math.round((townSpanY / 2) * 1.14);
+
+    const scaleFactor = Math.min(targetCanvasW / cropW, targetCanvasH / cropH);
+    const scaledW = Math.max(16, Math.round(cropW * scaleFactor));
+    const scaledH = Math.max(16, Math.round(cropH * scaleFactor));
 
     const croppedBuffer = await sharp(data, {
       raw: { width: info.width, height: info.height, channels: 4 }
     })
     .extract({ left: cropX, top: cropY, width: cropW, height: cropH })
     .resize(scaledW, scaledH, { kernel: sharp.kernel.lanczos3 })
-    .sharpen({ sigma: 1.3, m1: 1.5, m2: 0.9 })
+    .sharpen({ sigma: 1.2, m1: 1.4, m2: 0.8 })
     .png()
     .toBuffer();
 
-    const destFile = path.join(destDir, `island_${type}.png`);
-    await sharp({
+    const finalRaw = await sharp({
       create: {
         width: canvasSize,
         height: canvasSize,
@@ -104,14 +113,28 @@ async function buildPixelPerfectIslands() {
     })
     .composite([{
       input: croppedBuffer,
-      left: Math.round((canvasSize - scaledW) / 2),
-      top: Math.round((canvasSize - scaledH) / 2)
+      left: Math.round(canvasCenter - scaledW / 2),
+      top: Math.round(canvasCenter - scaledH / 2)
     }])
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+    // Clamp any faint anti-aliasing / fringe noise on the 512x512 canvas to pure 0
+    for (let i = 3; i < finalRaw.data.length; i += 4) {
+      if (finalRaw.data[i] <= 30) {
+        finalRaw.data[i] = 0;
+      }
+    }
+
+    const destFile = path.join(destDir, `island_${type}.png`);
+    await sharp(finalRaw.data, {
+      raw: { width: canvasSize, height: canvasSize, channels: 4 }
+    })
     .png({ compressionLevel: 9 })
     .toFile(destFile);
   }
 
-  // Step 5: Generate solid rock island sprite for uninhabited / rock islands with towns
+  // Step 5: Solid Rock Island Graphic
   const rockDest = path.join(destDir, 'rock_island.png');
   const rockSvg = `
     <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
@@ -129,27 +152,32 @@ async function buildPixelPerfectIslands() {
         </radialGradient>
       </defs>
       <!-- Underwater reef fringe -->
-      <ellipse cx="128" cy="132" rx="98" ry="68" fill="rgba(14, 165, 233, 0.25)" filter="blur(6px)" />
+      <ellipse cx="128" cy="132" rx="75" ry="52" fill="rgba(14, 165, 233, 0.25)" filter="blur(6px)" />
       <!-- Sandy Beach Shelf -->
-      <ellipse cx="128" cy="128" rx="88" ry="60" fill="url(#beachSand)" />
+      <ellipse cx="128" cy="128" rx="68" ry="46" fill="url(#beachSand)" />
       <!-- Rocky Island Core -->
-      <path d="M 68,135 Q 75,100 110,85 Q 140,75 168,90 Q 192,105 186,138 Q 170,165 132,168 Q 85,165 68,135 Z" fill="url(#rockShine)" stroke="#1e293b" stroke-width="2" />
+      <path d="M 80,132 Q 88,102 115,90 Q 140,80 162,94 Q 178,108 174,134 Q 160,154 130,156 Q 95,154 80,132 Z" fill="url(#rockShine)" stroke="#1e293b" stroke-width="2" />
       <!-- Mountain Ridges -->
-      <path d="M 85,130 L 125,92 L 155,105 L 175,135 M 125,92 L 132,150" stroke="#475569" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.6" />
+      <path d="M 95,128 L 125,96 L 150,108 L 165,132 M 125,96 L 130,142" stroke="#475569" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.6" />
       <!-- Greenery patches -->
-      <ellipse cx="108" cy="115" rx="14" ry="9" fill="#15803d" opacity="0.8" />
-      <ellipse cx="145" cy="122" rx="12" ry="8" fill="#166534" opacity="0.75" />
+      <ellipse cx="112" cy="118" rx="10" ry="7" fill="#15803d" opacity="0.8" />
+      <ellipse cx="142" cy="124" rx="9" ry="6" fill="#166534" opacity="0.75" />
     </svg>
   `;
-  await sharp(Buffer.from(rockSvg)).resize(512, 512).png().toFile(rockDest);
-  console.log('✅ Generated solid rock island sprite: rock_island.png');
+  const finalRockRaw = await sharp(Buffer.from(rockSvg)).resize(512, 512).raw().toBuffer({ resolveWithObject: true });
+  for (let i = 3; i < finalRockRaw.data.length; i += 4) {
+    if (finalRockRaw.data[i] <= 30) finalRockRaw.data[i] = 0;
+  }
+  await sharp(finalRockRaw.data, {
+    raw: { width: 512, height: 512, channels: 4 }
+  }).png().toFile(rockDest);
 
   fs.writeFileSync(
     path.join(__dirname, '..', 'src', 'lib', 'map', 'alignment_metadata.json'),
     JSON.stringify(alignmentMetadata, null, 2)
   );
 
-  console.log('✅ Successfully generated concentric aligned island sprites and alignment_metadata.json!');
+  console.log('✅ Generated physically proportional island sprites with 100% clean alpha cutouts!');
 }
 
 buildPixelPerfectIslands().catch(console.error);

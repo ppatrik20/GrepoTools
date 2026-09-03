@@ -20,6 +20,7 @@ import TacticalPinModal from "@/components/map/TacticalPinModal";
 import MinimapRadar from "@/components/map/MinimapRadar";
 
 import { computeAllianceVoronoi, computeContestedFrontlines } from "@/lib/map/voronoi";
+import { computeAllianceDominions } from "@/lib/map/dominions";
 import { filterIntelOverlays } from "@/lib/map/intelRadar";
 import { calculateArcTrajectory } from "@/lib/map/trajectories";
 import { getTacticalPins, saveTacticalPin, removeTacticalPin, PIN_TYPES, PIN_PRIORITIES } from "@/lib/map/tacticalPins";
@@ -329,6 +330,17 @@ export default function WorldMap() {
     return computeContestedFrontlines(rawTowns, voronoiData);
   }, [rawTowns, voronoiData]);
 
+  // Connected Alliance Territorial Dominions for Macro Zoom (Zoom 2.0 to 5.5)
+  const dominionsData = useMemo(() => {
+    if (!rawTowns.length || !topAlliances.length) {
+      return {
+        polygons: { type: 'FeatureCollection', features: [] },
+        labels: { type: 'FeatureCollection', features: [] }
+      };
+    }
+    return computeAllianceDominions(rawTowns, topAlliances, customColors);
+  }, [rawTowns, topAlliances, customColors]);
+
   // Alliance Territory Stats for Legend Breakdown (Milestone 1)
   const allianceTerritoryStats = useMemo(() => {
     if (!rawTowns.length || !topAlliances.length) return [];
@@ -524,6 +536,8 @@ export default function WorldMap() {
           mapLibre={maplibregl}
           style={{ width: "100%", height: "100%", position: "absolute", left: 0, top: 0 }}
           initialViewState={{ longitude: 0, latitude: 0, zoom: 2 }}
+          minZoom={2.0}
+          maxZoom={10.0}
           maxBounds={[
             [((250 / 1000) * 360 - 180), -((750 / 1000) * 180 - 90)],
             [((750 / 1000) * 360 - 180), -((250 / 1000) * 180 - 90)]
@@ -1130,13 +1144,12 @@ export default function WorldMap() {
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    5, 0.23,
-                    6, 0.46,
-                    7, 0.93,
-                    8, 1.86,
-                    9, 3.72,
-                    10, 7.44,
-                    11, 14.88
+                    5.0, 0.256,
+                    6.0, 0.512,
+                    7.0, 1.024,
+                    8.0, 2.048,
+                    9.0, 4.096,
+                    10.0, 8.192
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -1201,55 +1214,92 @@ export default function WorldMap() {
             </Source>
           )}
 
+          {/* Macro Zoom Connected Alliance Dominions (Zoom 2.0 to 5.8) */}
+          {dominionsData && dominionsData.polygons && dominionsData.polygons.features.length > 0 && (
+            <Source id="dominions-polygons-source" type="geojson" data={dominionsData.polygons}>
+              <Layer
+                id="dominions-glow"
+                type="line"
+                minzoom={2.0}
+                maxzoom={5.8}
+                paint={{
+                  "line-color": ["get", "color"],
+                  "line-width": ["+", ["get", "borderWidth"], 4],
+                  "line-opacity": 0.35,
+                  "line-blur": 3
+                }}
+              />
+              <Layer
+                id="dominions-fill"
+                type="fill"
+                minzoom={2.0}
+                maxzoom={5.8}
+                paint={{
+                  "fill-color": ["get", "color"],
+                  "fill-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 0.28,
+                    4.0, 0.22,
+                    5.8, 0.08
+                  ]
+                }}
+              />
+              <Layer
+                id="dominions-border"
+                type="line"
+                minzoom={2.0}
+                maxzoom={5.8}
+                paint={{
+                  "line-color": ["get", "color"],
+                  "line-width": ["get", "borderWidth"],
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 0.85,
+                    5.0, 0.80,
+                    5.8, 0.25
+                  ]
+                }}
+              />
+            </Source>
+          )}
+
+          {dominionsData && dominionsData.labels && dominionsData.labels.features.length > 0 && (
+            <Source id="dominions-labels-source" type="geojson" data={dominionsData.labels}>
+              <Layer
+                id="dominions-labels"
+                type="symbol"
+                minzoom={2.5}
+                maxzoom={5.5}
+                layout={{
+                  "text-field": ["get", "label"],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.5, 10,
+                    4.0, 12,
+                    5.5, 14
+                  ],
+                  "text-anchor": "center",
+                  "text-allow-overlap": false
+                }}
+                paint={{
+                  "text-color": "#ffffff",
+                  "text-halo-color": "#0b101e",
+                  "text-halo-width": 2.5
+                }}
+              />
+            </Source>
+          )}
+
           {/* Towns Layer */}
           {townsData && (
-            <Source id="towns-source" type="geojson" data={townsData} cluster={true} clusterMaxZoom={5} clusterRadius={45}>
-              {/* Clustered Bubbles at Macro Zoom */}
-              <Layer 
-                id="clusters"
-                type="circle"
-                minzoom={2}
-                maxzoom={5.5}
-                filter={["has", "point_count"]}
-                paint={{
-                  "circle-color": [
-                    "step",
-                    ["get", "point_count"],
-                    "#3b82f6",
-                    30, "#8b5cf6",
-                    100, "#ec4899"
-                  ],
-                  "circle-radius": [
-                    "step",
-                    ["get", "point_count"],
-                    14,
-                    30, 18,
-                    100, 24
-                  ],
-                  "circle-opacity": 0.85
-                }}
-              />
-              <Layer 
-                id="cluster-count"
-                type="symbol"
-                minzoom={2}
-                maxzoom={5.5}
-                filter={["has", "point_count"]}
-                layout={{
-                  "text-field": "{point_count_abbreviated}",
-                  "text-font": ["Noto Sans Regular"],
-                  "text-size": 11
-                }}
-                paint={{ "text-color": "#ffffff" }}
-              />
-
+            <Source id="towns-source" type="geojson" data={townsData}>
               {/* Unclustered Points sized by Town Stage (Zoom 3.5 to 6.8) */}
               <Layer 
                 id="town-points"
                 type="circle"
                 minzoom={3.5}
                 maxzoom={6.8}
-                filter={["!", ["has", "point_count"]]}
                 paint={{
                   "circle-color": [
                     "case",
@@ -1273,7 +1323,6 @@ export default function WorldMap() {
                 id="town-sprites"
                 type="symbol"
                 minzoom={6.5}
-                filter={["!", ["has", "point_count"]]}
                 layout={{
                   "icon-image": [
                     "match", ["get", "stage"],
@@ -1286,12 +1335,11 @@ export default function WorldMap() {
                   ],
                   "icon-size": [
                     "interpolate", ["exponential", 2], ["zoom"],
-                    6.5, 0.12,
-                    7.5, 0.24,
-                    8.5, 0.48,
-                    9.5, 0.96,
-                    10.5, 1.92,
-                    11.5, 3.84
+                    6.5, 0.085,
+                    7.5, 0.17,
+                    8.5, 0.34,
+                    9.5, 0.68,
+                    10.0, 0.96
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
@@ -1304,7 +1352,6 @@ export default function WorldMap() {
                 id="town-flags"
                 type="circle"
                 minzoom={6.8}
-                filter={["!", ["has", "point_count"]]}
                 paint={{
                   "circle-color": [
                     "case",
@@ -1315,12 +1362,11 @@ export default function WorldMap() {
                     "interpolate", ["linear"], ["zoom"],
                     6.8, 3.5,
                     8.5, 5.5,
-                    10.0, 8,
-                    12.0, 12
+                    10.0, 8
                   ],
                   "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#ffffff",
-                  "circle-translate": [0, -18]
+                  "circle-translate": [0, -14]
                 }}
               />
 
@@ -1329,7 +1375,6 @@ export default function WorldMap() {
                 id="town-labels"
                 type="symbol"
                 minzoom={8.5}
-                filter={["!", ["has", "point_count"]]}
                 layout={{
                   "text-field": ["get", "name"],
                   "text-font": ["Noto Sans Regular"],
@@ -1453,8 +1498,8 @@ export default function WorldMap() {
         </Map>
       </div>
 
-      {/* Floating Tactical Intel Radar Controls HUD (Milestone 2) */}
-      <div className="absolute top-20 left-4 z-30 pointer-events-auto">
+      {/* Floating Tactical Intel Radar Controls HUD (Centered below search bar) */}
+      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex justify-center">
         <IntelRadarControls
           filters={radarFilters}
           onChange={setRadarFilters}
