@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Loader2, MapPin, Users, Trophy, Castle, Ghost, Navigation, Compass, Globe, Shield } from 'lucide-react';
+import { Search, X, Loader2, MapPin, Users, Trophy, Castle, Ghost, Navigation, Compass, Globe, Shield, Radio, ChevronDown } from 'lucide-react';
+import IntelRadarControls from '@/components/map/IntelRadarControls';
 
 export function normalizeTownData(rawTown) {
   if (!rawTown) return null;
@@ -42,15 +43,20 @@ export default function UnifiedSearchPanel({
   onToggleRouteTool,
   isRouteToolActive,
   onToggleEmptySlots,
-  showEmptySlots
+  showEmptySlots,
+  radarFilters,
+  onRadarChange,
+  radarCounts = { ghosts: 0, sieges: 0, inactiveFarms: 0, total: 0 }
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [isRadarOpen, setIsRadarOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
+  const radarRef = useRef(null);
 
   // Flatten all items for smooth keyboard navigation
   const flatItems = React.useMemo(() => {
@@ -161,14 +167,26 @@ export default function UnifiedSearchPanel({
     }
   };
 
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (radarRef.current && !radarRef.current.contains(e.target)) {
+        setIsRadarOpen(false);
+      }
+    };
+    if (isRadarOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isRadarOpen]);
+
   return (
-    <div className="relative flex items-center gap-2" style={{ zIndex: 100 }}>
+    <div className="relative flex items-center gap-2 p-1.5 px-3 rounded-2xl glass-panel border border-slate-700/80 bg-slate-900/90 shadow-2xl backdrop-blur-xl" style={{ zIndex: 100 }}>
       {/* Search Input Bar */}
       <div 
-        className="glass-panel flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-700/80 bg-slate-900/90 shadow-2xl backdrop-blur-md transition-all focus-within:border-primary/80 focus-within:ring-2 focus-within:ring-primary/20"
-        style={{ width: '390px' }}
+        className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-950/60 border border-slate-800 transition-all focus-within:border-primary/80 focus-within:ring-2 focus-within:ring-primary/20"
+        style={{ width: '320px' }}
       >
-        <Search size={18} className="text-slate-400 shrink-0" />
+        <Search size={16} className="text-slate-400 shrink-0" />
         <input
           ref={inputRef}
           type="text"
@@ -176,25 +194,27 @@ export default function UnifiedSearchPanel({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleInputKeyDown}
           onFocus={() => { if (flatItems.length > 0) setIsOpen(true); }}
-          placeholder="Search player, alliance, town, or coords (503, 479)..."
-          className="bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none w-full"
+          placeholder="Search player, alliance, town, coords..."
+          className="bg-transparent text-xs text-white placeholder-slate-400 focus:outline-none w-full"
         />
-        {loading && <Loader2 size={16} className="text-primary animate-spin shrink-0" />}
+        {loading && <Loader2 size={14} className="text-primary animate-spin shrink-0" />}
         {query && !loading && (
           <button 
             onClick={() => { setQuery(''); setResults(null); setIsOpen(false); }}
             className="text-slate-400 hover:text-white p-0.5 rounded-full hover:bg-slate-800"
           >
-            <X size={14} />
+            <X size={12} />
           </button>
         )}
-        <kbd className="hidden sm:inline-block text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+        <kbd className="hidden sm:inline-block text-[9px] uppercase font-mono px-1 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
           Ctrl+K
         </kbd>
       </div>
 
+      <div className="h-5 w-[1px] bg-slate-800/80" />
+
       {/* Map View Mode Switch: Geographic vs Political */}
-      <div className="flex items-center bg-slate-950/80 p-0.5 rounded-xl border border-slate-700/80 shadow-inner backdrop-blur-md">
+      <div className="flex items-center bg-slate-950/60 p-0.5 rounded-xl border border-slate-800">
         <button
           onClick={() => onToggleViewMode && onToggleViewMode('geographic')}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -204,7 +224,7 @@ export default function UnifiedSearchPanel({
           }`}
           title="Geographic View (Standard Islands & Topography)"
         >
-          <Globe size={14} className={viewMode === 'geographic' ? 'text-blue-400' : 'text-slate-400'} />
+          <Globe size={13} className={viewMode === 'geographic' ? 'text-blue-400' : 'text-slate-400'} />
           <span className="hidden md:inline">Geo</span>
         </button>
         <button
@@ -216,61 +236,106 @@ export default function UnifiedSearchPanel({
           }`}
           title="Political & Frontline View (Alliance Voronoi Spheres & Contested Borders)"
         >
-          <Shield size={14} className={viewMode === 'political' ? 'text-purple-400 animate-pulse' : 'text-slate-400'} />
+          <Shield size={13} className={viewMode === 'political' ? 'text-purple-400 animate-pulse' : 'text-slate-400'} />
           <span className="hidden md:inline">Political</span>
         </button>
       </div>
 
+      <div className="h-5 w-[1px] bg-slate-800/80" />
+
       {/* Quick Action Buttons */}
-      <div className="flex items-center gap-1.5 glass-panel p-1 rounded-xl border border-slate-700/80 bg-slate-900/90 shadow-xl backdrop-blur-md">
+      <div className="flex items-center gap-1">
         {/* Toggle Ghost Towns */}
         <button
           onClick={onToggleGhosts}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             showGhostsOnly 
               ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50 shadow-sm' 
               : 'text-slate-300 hover:bg-slate-800 hover:text-white'
           }`}
           title="Filter Ghost Towns Only"
         >
-          <Ghost size={14} className={showGhostsOnly ? 'text-rose-400 animate-pulse' : 'text-slate-400'} />
+          <Ghost size={13} className={showGhostsOnly ? 'text-rose-400 animate-pulse' : 'text-slate-400'} />
           <span className="hidden md:inline">Ghosts</span>
         </button>
 
         {/* Toggle Empty Slots */}
         <button
           onClick={onToggleEmptySlots}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             showEmptySlots 
               ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm' 
               : 'text-slate-300 hover:bg-slate-800 hover:text-white'
           }`}
           title="Toggle Empty Colonization Slots"
         >
-          <Compass size={14} className={showEmptySlots ? 'text-emerald-400' : 'text-slate-400'} />
+          <Compass size={13} className={showEmptySlots ? 'text-emerald-400' : 'text-slate-400'} />
           <span className="hidden md:inline">Slots</span>
         </button>
 
         {/* Route Planner Tool */}
         <button
           onClick={onToggleRouteTool}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             isRouteToolActive 
               ? 'bg-primary/30 text-primary border border-primary/60 shadow-sm' 
               : 'text-slate-300 hover:bg-slate-800 hover:text-white'
           }`}
           title="Naval Route & Troop Travel Time Planner"
         >
-          <Navigation size={14} className={isRouteToolActive ? 'text-primary animate-bounce' : 'text-slate-400'} />
+          <Navigation size={13} className={isRouteToolActive ? 'text-primary animate-bounce' : 'text-slate-400'} />
           <span className="hidden md:inline">Route</span>
         </button>
       </div>
+
+      {/* Tactical Radar HUD Dropdown Submenu */}
+      {radarFilters && (
+        <>
+          <div className="h-5 w-[1px] bg-slate-800/80" />
+          <div className="relative" ref={radarRef}>
+            <button
+              onClick={() => setIsRadarOpen(prev => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                isRadarOpen || (radarCounts.total > 0 && (radarFilters.ghostHunter || radarFilters.activeSiege || radarFilters.inactiveFarms))
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+              title="Tactical Intel Radar (Ghosts, Sieges, Inactive Farms)"
+            >
+              <Radio size={13} className={(radarFilters.ghostHunter || radarFilters.activeSiege || radarFilters.inactiveFarms) ? 'text-cyan-400 animate-pulse' : 'text-slate-400'} />
+              <span className="hidden sm:inline">Radar</span>
+              {radarCounts.total > 0 && (
+                <span className="px-1.5 py-0.2 text-[10px] font-mono rounded-full bg-cyan-400/20 text-cyan-300 border border-cyan-400/40 font-bold">
+                  {radarCounts.total}
+                </span>
+              )}
+              <ChevronDown size={11} className={`transition-transform duration-200 ${isRadarOpen ? 'rotate-180 text-cyan-300' : 'text-slate-400'}`} />
+            </button>
+
+            {/* Floating Dropdown Submenu */}
+            {isRadarOpen && (
+              <div 
+                className="absolute top-full right-0 mt-3 z-50 animate-fade-in"
+                style={{ width: '22rem' }}
+              >
+                <IntelRadarControls
+                  filters={radarFilters}
+                  onChange={onRadarChange}
+                  counts={radarCounts}
+                  isDropdown={true}
+                  onClose={() => setIsRadarOpen(false)}
+                />
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Categorized Dropdown Results with Keyboard Navigation */}
       {isOpen && (
         <div 
           ref={dropdownRef}
-          className="absolute top-full left-0 mt-2 w-[480px] max-h-[480px] overflow-y-auto rounded-2xl glass-panel bg-slate-900/95 border border-slate-700/80 shadow-2xl p-2 flex flex-col gap-1 animate-fade-in scrollbar-thin scrollbar-thumb-slate-700"
+          className="absolute top-full left-0 mt-3 w-[460px] max-h-[480px] overflow-y-auto rounded-2xl glass-panel bg-slate-900/95 border border-slate-700/80 shadow-2xl p-2 flex flex-col gap-1 animate-fade-in scrollbar-thin scrollbar-thumb-slate-700"
           style={{ zIndex: 110 }}
         >
           {flatItems.length > 0 ? (

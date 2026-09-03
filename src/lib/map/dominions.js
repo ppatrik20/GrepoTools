@@ -1,7 +1,7 @@
 /**
  * src/lib/map/dominions.js
  * Connected Alliance Territorial Landmasses & Dominions Generator
- * For Macro Zoom Levels (Zoom 2.0 to 5.5)
+ * For Macro Zoom Levels (Zoom 2.0 to 5.8)
  */
 
 function computeConvexHull(points) {
@@ -31,15 +31,20 @@ function computeConvexHull(points) {
   return lower.concat(upper);
 }
 
-function expandPolygon(hull, bufferDeg = 0.9, numSmoothSteps = 16) {
+// Generate organic rounded boundary around hull points
+function createOrganicTerritoryRing(hull, bufferDeg = 0.75, numSubdivisions = 6) {
   if (!hull || hull.length === 0) return [];
   
   if (hull.length === 1) {
     const [cx, cy] = hull[0];
     const ring = [];
-    for (let i = 0; i <= numSmoothSteps; i++) {
-      const angle = (i / numSmoothSteps) * Math.PI * 2;
-      ring.push([cx + Math.cos(angle) * bufferDeg, cy + Math.sin(angle) * (bufferDeg * 0.75)]);
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      ring.push([
+        Number((cx + Math.cos(angle) * bufferDeg).toFixed(5)),
+        Number((cy + Math.sin(angle) * (bufferDeg * 0.7)).toFixed(5))
+      ]);
     }
     return [ring];
   }
@@ -49,22 +54,24 @@ function expandPolygon(hull, bufferDeg = 0.9, numSmoothSteps = 16) {
     const dx = p2[0] - p1[0];
     const dy = p2[1] - p1[1];
     const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len * bufferDeg;
-    const ny = dx / len * (bufferDeg * 0.75);
+    const nx = (-dy / len) * bufferDeg;
+    const ny = (dx / len) * (bufferDeg * 0.7);
     
     return [[
-      [p1[0] + nx, p1[1] + ny],
-      [p2[0] + nx, p2[1] + ny],
-      [p2[0] + Math.cos(0.3) * bufferDeg, p2[1] + Math.sin(0.3) * bufferDeg * 0.75],
-      [p2[0] - nx, p2[1] - ny],
-      [p1[0] - nx, p1[1] - ny],
-      [p1[0] - Math.cos(0.3) * bufferDeg, p1[0] - Math.sin(0.3) * bufferDeg * 0.75],
-      [p1[0] + nx, p1[1] + ny]
+      [Number((p1[0] + nx).toFixed(5)), Number((p1[1] + ny).toFixed(5))],
+      [Number((p2[0] + nx).toFixed(5)), Number((p2[1] + ny).toFixed(5))],
+      [Number((p2[0] + Math.cos(0.3) * bufferDeg).toFixed(5)), Number((p2[1] + Math.sin(0.3) * bufferDeg * 0.7).toFixed(5))],
+      [Number((p2[0] - nx).toFixed(5)), Number((p2[1] - ny).toFixed(5))],
+      [Number((p1[0] - nx).toFixed(5)), Number((p1[1] - ny).toFixed(5))],
+      [Number((p1[0] - Math.cos(0.3) * bufferDeg).toFixed(5)), Number((p1[1] - Math.sin(0.3) * bufferDeg * 0.7).toFixed(5))],
+      [Number((p1[0] + nx).toFixed(5)), Number((p1[1] + ny).toFixed(5))]
     ]];
   }
 
-  const ring = [];
+  // Smooth multi-point hull by interpolating outward curved lobes
   const n = hull.length;
+  const outerControlPoints = [];
+
   for (let i = 0; i < n; i++) {
     const prev = hull[(i - 1 + n) % n];
     const curr = hull[i];
@@ -82,13 +89,35 @@ function expandPolygon(hull, bufferDeg = 0.9, numSmoothSteps = 16) {
     const avgN = [(n1[0] + n2[0]) / 2, (n1[1] + n2[1]) / 2];
     const avgLen = Math.hypot(avgN[0], avgN[1]) || 1;
     
-    ring.push([
+    outerControlPoints.push([
       curr[0] + (avgN[0] / avgLen) * bufferDeg,
-      curr[1] + (avgN[1] / avgLen) * (bufferDeg * 0.75)
+      curr[1] + (avgN[1] / avgLen) * (bufferDeg * 0.7)
     ]);
   }
-  ring.push(ring[0]);
-  return [ring];
+
+  // Subdivide and smooth corners using cubic-like midpoint smoothing
+  const smoothRing = [];
+  const m = outerControlPoints.length;
+  for (let i = 0; i < m; i++) {
+    const pCurr = outerControlPoints[i];
+    const pNext = outerControlPoints[(i + 1) % m];
+    
+    smoothRing.push([Number(pCurr[0].toFixed(5)), Number(pCurr[1].toFixed(5))]);
+
+    // Subdivide straight segments with gentle natural curvature
+    for (let s = 1; s < numSubdivisions; s++) {
+      const t = s / numSubdivisions;
+      const arcFactor = Math.sin(t * Math.PI) * (bufferDeg * 0.12);
+      const ix = pCurr[0] + (pNext[0] - pCurr[0]) * t;
+      const iy = pCurr[1] + (pNext[1] - pCurr[1]) * t;
+      smoothRing.push([
+        Number(ix.toFixed(5)),
+        Number((iy + arcFactor).toFixed(5))
+      ]);
+    }
+  }
+  smoothRing.push(smoothRing[0]); // Close ring
+  return [smoothRing];
 }
 
 /**
@@ -114,7 +143,7 @@ export function computeAllianceDominions(towns = [], topAlliances = [], customCo
     }
   });
 
-  // Group towns by alliance and cluster by spatial proximity
+  // Group towns by alliance
   const allianceGroups = new Map();
 
   towns.forEach(t => {
@@ -148,49 +177,81 @@ export function computeAllianceDominions(towns = [], topAlliances = [], customCo
   const polygonFeatures = [];
   const labelFeatures = [];
 
+  // Tactical clustering parameters:
+  // Points must be within 1.5 degrees (~4-5 tiles) to belong to same local archipelago dominion
+  // Maximum cluster diameter is clamped to 3.2 degrees to prevent chaining across multiple oceans!
+  const LOCAL_CLUSTER_DIST = 1.5;
+  const MAX_CLUSTER_DIAMETER = 3.2;
+
   allianceGroups.forEach((group, aName) => {
     const points = group.points;
-    if (points.length < 2) return;
+    if (points.length < 3) return;
 
-    // Cluster points within distance threshold (~4.5 degrees longitude/latitude)
     const clusters = [];
-    const visited = new Set();
-    const clusterDistThreshold = 4.5;
+    const used = new Set();
 
     for (let i = 0; i < points.length; i++) {
-      if (visited.has(i)) continue;
-      const cluster = [points[i]];
-      visited.add(i);
+      if (used.has(i)) continue;
 
-      for (let j = i + 1; j < points.length; j++) {
-        if (visited.has(j)) continue;
-        // Check distance to any point in the cluster
+      const cluster = [points[i]];
+      used.add(i);
+
+      let minLng = points[i][0], maxLng = points[i][0];
+      let minLat = points[i][1], maxLat = points[i][1];
+
+      for (let j = 0; j < points.length; j++) {
+        if (used.has(j)) continue;
+
+        const candidate = points[j];
+        // Check if candidate is near any point in current cluster
+        let isNear = false;
         for (const cp of cluster) {
-          const dist = Math.hypot(points[j][0] - cp[0], points[j][1] - cp[1]);
-          if (dist < clusterDistThreshold) {
-            cluster.push(points[j]);
-            visited.add(j);
+          const dist = Math.hypot(candidate[0] - cp[0], candidate[1] - cp[1]);
+          if (dist <= LOCAL_CLUSTER_DIST) {
+            isNear = true;
             break;
           }
         }
+
+        if (isNear) {
+          // Check that adding candidate does not exceed max cluster diameter
+          const nextMinLng = Math.min(minLng, candidate[0]);
+          const nextMaxLng = Math.max(maxLng, candidate[0]);
+          const nextMinLat = Math.min(minLat, candidate[1]);
+          const nextMaxLat = Math.max(maxLat, candidate[1]);
+
+          const spanLng = nextMaxLng - nextMinLng;
+          const spanLat = nextMaxLat - nextMinLat;
+
+          if (spanLng <= MAX_CLUSTER_DIAMETER && spanLat <= MAX_CLUSTER_DIAMETER) {
+            cluster.push(candidate);
+            used.add(j);
+            minLng = nextMinLng;
+            maxLng = nextMaxLng;
+            minLat = nextMinLat;
+            maxLat = nextMaxLat;
+          }
+        }
       }
-      clusters.push(cluster);
+
+      // Only make a dominion if the alliance controls >= 3 towns in this local cluster
+      if (cluster.length >= 3) {
+        clusters.push(cluster);
+      }
     }
 
-    // Generate smoothed territory landmass for each cluster
+    // Generate smoothed organic territory landmass for each valid cluster
     clusters.forEach((cluster, cIndex) => {
       const townCount = cluster.length;
-      if (townCount < 2) return;
-
       const hull = computeConvexHull(cluster);
-      const coordinates = expandPolygon(hull, 1.2);
+      const coordinates = createOrganicTerritoryRing(hull, 0.70);
       if (coordinates.length === 0 || coordinates[0].length < 3) return;
 
-      // Dynamic border thickness based on town count
-      let borderWidth = 2.5;
-      if (townCount >= 50) borderWidth = 6.5;
-      else if (townCount >= 20) borderWidth = 4.8;
-      else if (townCount >= 8) borderWidth = 3.5;
+      // Dynamic border thickness based on military presence
+      let borderWidth = 2.2;
+      if (townCount >= 30) borderWidth = 5.0;
+      else if (townCount >= 15) borderWidth = 3.8;
+      else if (townCount >= 7) borderWidth = 2.8;
 
       const centerLng = cluster.reduce((sum, p) => sum + p[0], 0) / cluster.length;
       const centerLat = cluster.reduce((sum, p) => sum + p[1], 0) / cluster.length;
@@ -207,12 +268,12 @@ export function computeAllianceDominions(towns = [], topAlliances = [], customCo
           color: group.color,
           townCount: townCount,
           borderWidth: borderWidth,
-          fillOpacity: 0.26
+          fillOpacity: 0.18
         }
       });
 
-      // Label for significant dominions
-      if (townCount >= 3) {
+      // Crest label for significant holdings
+      if (townCount >= 4) {
         labelFeatures.push({
           type: 'Feature',
           geometry: {
@@ -224,7 +285,7 @@ export function computeAllianceDominions(towns = [], topAlliances = [], customCo
             alliance: aName,
             color: group.color,
             townCount: townCount,
-            label: `${aName} (${townCount} Cities)`
+            label: `${aName} (${townCount})`
           }
         });
       }

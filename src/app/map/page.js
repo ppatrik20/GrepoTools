@@ -14,7 +14,7 @@ import UnifiedSearchPanel, { normalizeTownData } from "@/components/map/UnifiedS
 import CommandDrawer from "@/components/map/CommandDrawer";
 import RoutePlannerTool from "@/components/map/RoutePlannerTool";
 import PoliticalHeatmapLegend from "@/components/map/PoliticalHeatmapLegend";
-import IntelRadarControls, { DEFAULT_RADAR_FILTERS } from "@/components/map/IntelRadarControls";
+import { DEFAULT_RADAR_FILTERS } from "@/components/map/IntelRadarControls";
 import AnimatedTroopLayer from "@/components/map/AnimatedTroopLayer";
 import TacticalPinModal from "@/components/map/TacticalPinModal";
 import MinimapRadar from "@/components/map/MinimapRadar";
@@ -517,6 +517,14 @@ export default function WorldMap() {
           isRouteToolActive={isRouteToolActive}
           onToggleEmptySlots={() => setShowEmptySlots(prev => !prev)}
           showEmptySlots={showEmptySlots}
+          radarFilters={radarFilters}
+          onRadarChange={setRadarFilters}
+          radarCounts={{
+            ghosts: radarData.ghosts.features.length,
+            sieges: radarData.sieges.features.length,
+            inactiveFarms: radarData.inactiveFarms.features.length,
+            total: radarData.ghosts.features.length + radarData.sieges.features.length + radarData.inactiveFarms.features.length
+          }}
         />
       </div>
 
@@ -695,7 +703,6 @@ export default function WorldMap() {
               <Layer
                 id="voronoi-spheres-fill"
                 type="fill"
-                beforeId="islands-points"
                 layout={{
                   visibility: viewMode === 'political' ? 'visible' : 'none'
                 }}
@@ -714,7 +721,6 @@ export default function WorldMap() {
               <Layer
                 id="voronoi-spheres-border"
                 type="line"
-                beforeId="islands-points"
                 layout={{
                   visibility: viewMode === 'political' ? 'visible' : 'none',
                   "line-join": "round",
@@ -746,7 +752,6 @@ export default function WorldMap() {
               <Layer
                 id="contested-frontline-glow"
                 type="line"
-                beforeId="islands-points"
                 layout={{
                   visibility: (viewMode === 'political' && showContestedFrontlines) ? 'visible' : 'none',
                   "line-join": "round",
@@ -782,7 +787,6 @@ export default function WorldMap() {
               <Layer
                 id="contested-frontline-lines"
                 type="line"
-                beforeId="islands-points"
                 layout={{
                   visibility: (viewMode === 'political' && showContestedFrontlines) ? 'visible' : 'none',
                   "line-join": "round",
@@ -810,7 +814,6 @@ export default function WorldMap() {
               <Layer
                 id="ghost-radar-glow"
                 type="circle"
-                beforeId="islands-points"
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -827,7 +830,6 @@ export default function WorldMap() {
               <Layer
                 id="ghost-radar-markers"
                 type="circle"
-                beforeId="islands-points"
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -846,7 +848,6 @@ export default function WorldMap() {
                 id="ghost-radar-labels"
                 type="symbol"
                 minzoom={6.0}
-                beforeId="islands-points"
                 layout={{
                   "text-field": [
                     "concat",
@@ -877,7 +878,6 @@ export default function WorldMap() {
               <Layer
                 id="siege-radar-halo"
                 type="circle"
-                beforeId="islands-points"
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -894,7 +894,6 @@ export default function WorldMap() {
               <Layer
                 id="siege-radar-markers"
                 type="circle"
-                beforeId="islands-points"
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -913,7 +912,6 @@ export default function WorldMap() {
                 id="siege-radar-labels"
                 type="symbol"
                 minzoom={5.5}
-                beforeId="islands-points"
                 layout={{
                   "text-field": [
                     "concat",
@@ -942,7 +940,6 @@ export default function WorldMap() {
               <Layer
                 id="inactive-farm-glow"
                 type="circle"
-                beforeId="islands-points"
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -959,7 +956,6 @@ export default function WorldMap() {
               <Layer
                 id="inactive-farm-markers"
                 type="circle"
-                beforeId="islands-points"
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
@@ -978,7 +974,6 @@ export default function WorldMap() {
                 id="inactive-farm-labels"
                 type="symbol"
                 minzoom={6.0}
-                beforeId="islands-points"
                 layout={{
                   "text-field": [
                     "concat",
@@ -1496,20 +1491,6 @@ export default function WorldMap() {
             </Popup>
           )}
         </Map>
-      </div>
-
-      {/* Floating Tactical Intel Radar Controls HUD (Centered below search bar) */}
-      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex justify-center">
-        <IntelRadarControls
-          filters={radarFilters}
-          onChange={setRadarFilters}
-          counts={{
-            ghosts: radarData.ghosts.features.length,
-            sieges: radarData.sieges.features.length,
-            inactiveFarms: radarData.inactiveFarms.features.length,
-            total: radarData.ghosts.features.length + radarData.sieges.features.length + radarData.inactiveFarms.features.length
-          }}
-        />
       </div>
 
       {/* Floating Route Planner Tool (Milestone 3) */}

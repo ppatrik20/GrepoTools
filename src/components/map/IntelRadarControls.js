@@ -23,9 +23,11 @@ export default function IntelRadarControls({
   filters = DEFAULT_RADAR_FILTERS,
   onChange,
   counts = { ghosts: 0, sieges: 0, inactiveFarms: 0, total: 0 },
-  className = ""
+  className = "",
+  isDropdown = false,
+  onClose
 }) {
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(!isDropdown);
 
   const activeFilters = { ...DEFAULT_RADAR_FILTERS, ...filters };
   const totalDetected = (counts.ghosts || 0) + (counts.sieges || 0) + (counts.inactiveFarms || 0);
@@ -33,21 +35,21 @@ export default function IntelRadarControls({
 
   const updateFilter = (key, value) => {
     if (onChange) {
-      onChange(prev => ({
-        ...prev,
+      onChange({
+        ...activeFilters,
         [key]: value
-      }));
+      });
     }
   };
 
   const handleToggleAll = (enable) => {
     if (onChange) {
-      onChange(prev => ({
-        ...prev,
+      onChange({
+        ...activeFilters,
         ghostHunter: enable,
         activeSiege: enable,
         inactiveFarms: enable
-      }));
+      });
     }
   };
 
@@ -58,7 +60,7 @@ export default function IntelRadarControls({
   };
 
   // Collapsed Pill HUD
-  if (isCollapsed) {
+  if (!isDropdown && isCollapsed) {
     return (
       <div 
         className={`glass-panel flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-900/90 border border-cyan-500/40 shadow-xl cursor-pointer hover:bg-slate-800/90 transition-all ${className}`}
@@ -105,10 +107,10 @@ export default function IntelRadarControls({
             </span>
           )}
           <button
-            onClick={() => setIsCollapsed(true)}
+            onClick={onClose || (() => setIsCollapsed(true))}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            title="Collapse Radar HUD"
-            aria-label="Collapse Radar HUD"
+            title={onClose ? "Close Radar HUD" : "Collapse Radar HUD"}
+            aria-label="Close Radar HUD"
           >
             <ChevronUp size={16} />
           </button>
