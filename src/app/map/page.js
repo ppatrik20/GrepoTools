@@ -18,9 +18,12 @@ import { DEFAULT_RADAR_FILTERS } from "@/components/map/IntelRadarControls";
 import AnimatedTroopLayer from "@/components/map/AnimatedTroopLayer";
 import TacticalPinModal from "@/components/map/TacticalPinModal";
 import MinimapRadar from "@/components/map/MinimapRadar";
+import AllianceCoalitionModal from "@/components/map/AllianceCoalitionModal";
 
 import { computeAllianceVoronoi, computeContestedFrontlines } from "@/lib/map/voronoi";
 import { computeAllianceDominions } from "@/lib/map/dominions";
+import { classifyIslands, ISLAND_STATUS } from "@/lib/map/islandControl";
+import { computeMaritimeBoundaries } from "@/lib/map/maritimeBoundaries";
 import { filterIntelOverlays } from "@/lib/map/intelRadar";
 import { calculateArcTrajectory } from "@/lib/map/trajectories";
 import { getTacticalPins, saveTacticalPin, removeTacticalPin, PIN_TYPES, PIN_PRIORITIES } from "@/lib/map/tacticalPins";
@@ -183,6 +186,10 @@ export default function WorldMap() {
   const [tacticalPins, setTacticalPins] = useState([]);
   const [selectedPinTown, setSelectedPinTown] = useState(null);
 
+  // Alliance Coalitions & Families
+  const [coalitions, setCoalitions] = useState([]);
+  const [isCoalitionModalOpen, setIsCoalitionModalOpen] = useState(false);
+
   // Viewport tracking for Minimap Radar (Milestone 5)
   const [currentViewState, setCurrentViewState] = useState({
     longitude: 0,
@@ -243,6 +250,38 @@ export default function WorldMap() {
       setTacticalPins(getTacticalPins(activeWorldId));
     }
   }, [activeWorldId]);
+
+  // Load alliance coalitions for current world
+  useEffect(() => {
+    if (!activeWorldId) return;
+    fetch(`/api/world/coalitions?world=${activeWorldId}`)
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && Array.isArray(result.coalitions)) {
+          setCoalitions(result.coalitions);
+        }
+      })
+      .catch(() => {
+        try {
+          const cached = localStorage.getItem(`grepotools_coalitions_${activeWorldId}`);
+          if (cached) setCoalitions(JSON.parse(cached));
+        } catch (e) {}
+      });
+  }, [activeWorldId]);
+
+  const handleSaveCoalitions = async (newCoalitions) => {
+    setCoalitions(newCoalitions);
+    try {
+      localStorage.setItem(`grepotools_coalitions_${activeWorldId}`, JSON.stringify(newCoalitions));
+      await fetch('/api/world/coalitions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ worldId: activeWorldId, coalitions: newCoalitions })
+      });
+    } catch (e) {
+      console.error("Failed to save coalitions:", e);
+    }
+  };
 
   // Pre-partition features once by renderType to avoid repeated O(N) scans across 100k+ features
   const partitionedFeatures = useMemo(() => {
@@ -362,7 +401,33 @@ export default function WorldMap() {
     return computeContestedFrontlines(rawTowns, voronoiData);
   }, [rawTowns, voronoiData]);
 
-  // Connected Alliance Territorial Dominions for Macro Zoom (Zoom 2.0 to 5.5)
+  // Island Sovereignty & Cleanliness Classification
+  const islandClassification = useMemo(() => {
+    if (!rawTowns.length) return null;
+    return classifyIslands(partitionedFeatures.islands, rawTowns, {
+      coalitions,
+      customColors,
+      minCleanTowns: 1
+    });
+  }, [partitionedFeatures.islands, rawTowns, coalitions, customColors]);
+
+  // Continuous Maritime Ocean Territorial Basins, Frontlines, and Island Halos
+  const maritimeTerritoryData = useMemo(() => {
+    if (!islandClassification || !islandClassification.islandSummaryList.length) {
+      return {
+        oceanBasinsGeoJSON: { type: 'FeatureCollection', features: [] },
+        frontlinesGeoJSON: { type: 'FeatureCollection', features: [] },
+        islandHalosGeoJSON: { type: 'FeatureCollection', features: [] },
+        macroLabelsGeoJSON: { type: 'FeatureCollection', features: [] }
+      };
+    }
+    return computeMaritimeBoundaries(islandClassification.islandSummaryList, {
+      clusterMaxGapDeg: 4.5,
+      bufferDeg: 1.10
+    });
+  }, [islandClassification]);
+
+  // Connected Alliance Territorial Dominions (Fallback / Macro)
   const dominionsData = useMemo(() => {
     if (!rawTowns.length || !topAlliances.length) {
       return {
@@ -640,7 +705,7 @@ export default function WorldMap() {
             "islands-points", "island-sprites", "rocks-points", 
             "empty-slots-points", "empty-slots-sprites",
             "ghost-radar-markers", "siege-radar-markers", "inactive-farm-markers",
-            "tactical-pin-markers"
+            "tactical-pin-markers", "island-halos-ring", "enemy-beachheads-point"
           ]}
           onMouseEnter={() => {
             if (mapRef.current) mapRef.current.getCanvas().style.cursor = "pointer";
@@ -1299,69 +1364,207 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Macro Zoom Connected Alliance Dominions (Zoom 2.0 to 5.8) */}
-          {dominionsData && dominionsData.polygons && dominionsData.polygons.features.length > 0 && (
-            <Source id="dominions-polygons-source" type="geojson" data={dominionsData.polygons}>
+          {/* Continuous Alliance Maritime Ocean Territory Basins (Zoom 2.0 to 6.2) */}
+          {maritimeTerritoryData.oceanBasinsGeoJSON.features.length > 0 && (
+            <Source id="maritime-ocean-source" type="geojson" data={maritimeTerritoryData.oceanBasinsGeoJSON}>
               <Layer
-                id="dominions-glow"
+                id="maritime-ocean-glow"
                 type="line"
                 minzoom={2.0}
-                maxzoom={5.8}
+                maxzoom={6.2}
                 paint={{
                   "line-color": ["get", "color"],
-                  "line-width": ["+", ["get", "borderWidth"], 4],
+                  "line-width": 6,
                   "line-opacity": 0.35,
-                  "line-blur": 3
+                  "line-blur": 4
                 }}
               />
               <Layer
-                id="dominions-fill"
+                id="maritime-ocean-fill"
                 type="fill"
                 minzoom={2.0}
-                maxzoom={5.8}
+                maxzoom={6.2}
                 paint={{
                   "fill-color": ["get", "color"],
                   "fill-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    2.0, 0.28,
-                    4.0, 0.22,
-                    5.8, 0.08
+                    2.0, 0.26,
+                    4.0, 0.20,
+                    5.5, 0.12,
+                    6.2, 0.04
                   ]
                 }}
               />
               <Layer
-                id="dominions-border"
+                id="maritime-ocean-border"
                 type="line"
                 minzoom={2.0}
-                maxzoom={5.8}
+                maxzoom={6.2}
                 paint={{
                   "line-color": ["get", "color"],
-                  "line-width": ["get", "borderWidth"],
+                  "line-width": 2,
                   "line-opacity": [
                     "interpolate", ["linear"], ["zoom"],
                     2.0, 0.85,
-                    5.0, 0.80,
-                    5.8, 0.25
+                    5.0, 0.70,
+                    6.2, 0.20
                   ]
                 }}
               />
             </Source>
           )}
 
-          {dominionsData && dominionsData.labels && dominionsData.labels.features.length > 0 && (
-            <Source id="dominions-labels-source" type="geojson" data={dominionsData.labels}>
+          {/* Inter-Alliance Maritime Frontline Clashes */}
+          {maritimeTerritoryData.frontlinesGeoJSON.features.length > 0 && (
+            <Source id="maritime-frontlines-source" type="geojson" data={maritimeTerritoryData.frontlinesGeoJSON}>
               <Layer
-                id="dominions-labels"
+                id="maritime-frontline-glow"
+                type="line"
+                minzoom={2.0}
+                maxzoom={6.5}
+                paint={{
+                  "line-color": "#f43f5e",
+                  "line-width": 5,
+                  "line-opacity": 0.45,
+                  "line-blur": 3
+                }}
+              />
+              <Layer
+                id="maritime-frontline-line"
+                type="line"
+                minzoom={2.0}
+                maxzoom={6.5}
+                paint={{
+                  "line-color": "#fda4af",
+                  "line-width": 2,
+                  "line-opacity": 0.9,
+                  "line-dasharray": [3, 1]
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Island Sovereignty & Cleanliness Halos (Clean vs Infiltrated vs Contested) */}
+          {maritimeTerritoryData.islandHalosGeoJSON.features.length > 0 && (
+            <Source id="island-halos-source" type="geojson" data={maritimeTerritoryData.islandHalosGeoJSON}>
+              <Layer
+                id="island-halos-glow"
+                type="circle"
+                minzoom={2.2}
+                maxzoom={7.0}
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.2, 3,
+                    4.0, 7,
+                    5.5, 12,
+                    7.0, 18
+                  ],
+                  "circle-color": ["get", "haloColor"],
+                  "circle-opacity": 0.40,
+                  "circle-blur": 1.2
+                }}
+              />
+              <Layer
+                id="island-halos-ring"
+                type="circle"
+                minzoom={2.2}
+                maxzoom={7.0}
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.2, 2.5,
+                    4.0, 5.5,
+                    5.5, 9.5,
+                    7.0, 14
+                  ],
+                  "circle-color": ["get", "haloColor"],
+                  "circle-stroke-width": [
+                    "match", ["get", "status"],
+                    "CLEAN", 1.8,
+                    "INFILTRATED", 2.5,
+                    "CONTESTED", 2.0,
+                    1.0
+                  ],
+                  "circle-stroke-color": ["get", "strokeColor"],
+                  "circle-opacity": 0.85
+                }}
+              />
+            </Source>
+          )}
+
+          {/* High-Priority Enemy Beachheads (1-2 Enemy Towns breaching Clean Islands) */}
+          {islandClassification?.enemyBeachheadsGeoJSON?.features?.length > 0 && (
+            <Source id="enemy-beachheads-source" type="geojson" data={islandClassification.enemyBeachheadsGeoJSON}>
+              <Layer
+                id="enemy-beachheads-halo"
+                type="circle"
+                minzoom={3.0}
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    3.0, 6,
+                    5.5, 12,
+                    8.0, 20
+                  ],
+                  "circle-color": "#ef4444",
+                  "circle-opacity": 0.5,
+                  "circle-blur": 1.5
+                }}
+              />
+              <Layer
+                id="enemy-beachheads-point"
+                type="circle"
+                minzoom={3.0}
+                paint={{
+                  "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    3.0, 3.5,
+                    5.5, 6.5,
+                    8.0, 11
+                  ],
+                  "circle-color": "#dc2626",
+                  "circle-stroke-width": 2,
+                  "circle-stroke-color": "#ffffff",
+                  "circle-opacity": 1.0
+                }}
+              />
+              <Layer
+                id="enemy-beachheads-label"
                 type="symbol"
-                minzoom={2.5}
+                minzoom={5.0}
+                layout={{
+                  "text-field": "⚠️ BREACH",
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": 9,
+                  "text-offset": [0, -1.8],
+                  "text-anchor": "bottom",
+                  "text-optional": true
+                }}
+                paint={{
+                  "text-color": "#fca5a5",
+                  "text-halo-color": "#450a0a",
+                  "text-halo-width": 2
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Macro Alliance Maritime Basin Labels (Zoom 2.2 to 5.5) */}
+          {maritimeTerritoryData.macroLabelsGeoJSON.features.length > 0 && (
+            <Source id="maritime-labels-source" type="geojson" data={maritimeTerritoryData.macroLabelsGeoJSON}>
+              <Layer
+                id="maritime-labels"
+                type="symbol"
+                minzoom={2.2}
                 maxzoom={5.5}
                 layout={{
                   "text-field": ["get", "label"],
                   "text-font": ["Noto Sans Regular"],
                   "text-size": [
                     "interpolate", ["linear"], ["zoom"],
-                    2.5, 10,
-                    4.0, 12,
+                    2.2, 10,
+                    3.8, 12,
                     5.5, 14
                   ],
                   "text-anchor": "center",
@@ -1552,20 +1755,63 @@ export default function WorldMap() {
                     )}
                   </>
                 )}
-                {(hoverInfoRef.current.feature.properties.renderType === 'island' || hoverInfoRef.current.feature.properties.renderType === 'rock') && (
+                {hoverInfoRef.current.feature.properties.isBeachhead && (
+                  <div className="p-2 rounded-lg bg-rose-950/60 border border-rose-500/40 text-xs">
+                    <div className="text-rose-300 font-bold flex items-center gap-1">
+                      ⚠️ ENEMY BEACHHEAD BREACH
+                    </div>
+                    <div className="text-slate-300 text-[11px] mt-1 font-medium">
+                      Town: <span className="text-white font-bold">{hoverInfoRef.current.feature.properties.name}</span>
+                    </div>
+                    <div className="text-slate-400 text-[11px]">
+                      Player: <span className="text-slate-200">{hoverInfoRef.current.feature.properties.player}</span>
+                    </div>
+                    <div className="text-slate-400 text-[11px]">
+                      Enemy Alliance: <span className="text-rose-400 font-bold">{hoverInfoRef.current.feature.properties.enemyAlliance}</span>
+                    </div>
+                    <div className="text-slate-400 text-[11px]">
+                      Island Controlled By: <span className="text-emerald-400 font-bold">{hoverInfoRef.current.feature.properties.hostAlliance}</span>
+                    </div>
+                  </div>
+                )}
+                {(hoverInfoRef.current.feature.properties.renderType === 'island' || hoverInfoRef.current.feature.properties.renderType === 'rock' || hoverInfoRef.current.feature.properties.islandKey) && (
                   <>
                     <div style={{ fontWeight: 'bold', fontSize: '1.05rem', marginBottom: '0.25rem', color: '#f8fafc' }}>
                       {hoverInfoRef.current.feature.properties.renderType === 'island' ? 'Island' : 'Rock'} ({hoverInfoRef.current.feature.properties.x}, {hoverInfoRef.current.feature.properties.y})
                     </div>
-                    {hoverInfoRef.current.feature.properties.dominantAlliance !== "None" && (
+                    {hoverInfoRef.current.feature.properties.status && (
+                      <div className="mb-2">
+                        {hoverInfoRef.current.feature.properties.status === 'CLEAN' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            🟢 100% CLEAN SAFE HAVEN
+                          </span>
+                        )}
+                        {hoverInfoRef.current.feature.properties.status === 'INFILTRATED' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            ⚠️ INFILTRATED ({hoverInfoRef.current.feature.properties.enemyCount} ENEMY BREACH)
+                          </span>
+                        )}
+                        {hoverInfoRef.current.feature.properties.status === 'CONTESTED' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                            ⚔️ CONTESTED FRONTLINE
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {hoverInfoRef.current.feature.properties.dominantAlliance && hoverInfoRef.current.feature.properties.dominantAlliance !== "None" && (
                       <div className="text-secondary" style={{ fontSize: '0.85rem' }}>
-                        Dominant: <span style={{color: hoverInfoRef.current.feature.properties.islandColor, fontWeight: 'bold'}}>{hoverInfoRef.current.feature.properties.dominantAlliance}</span>
+                        Dominant: <span style={{color: hoverInfoRef.current.feature.properties.islandColor || hoverInfoRef.current.feature.properties.haloColor || '#38bdf8', fontWeight: 'bold'}}>{hoverInfoRef.current.feature.properties.dominantAlliance}</span>
                       </div>
                     )}
                     {hoverInfoRef.current.feature.properties.renderType === 'island' && (
                       <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Buff: <span style={{ color: 'white' }}>+{hoverInfoRef.current.feature.properties.resourcePlus} / -{hoverInfoRef.current.feature.properties.resourceMinus}</span></div>
                     )}
-                    <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Towns: <span style={{ color: 'white' }}>{hoverInfoRef.current.feature.properties.colonizedCount} / {hoverInfoRef.current.feature.properties.availableTowns}</span></div>
+                    {hoverInfoRef.current.feature.properties.colonizedCount !== undefined && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Towns: <span style={{ color: 'white' }}>{hoverInfoRef.current.feature.properties.colonizedCount} / {hoverInfoRef.current.feature.properties.availableTowns}</span></div>
+                    )}
+                    {hoverInfoRef.current.feature.properties.dominantCount !== undefined && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Control: <span style={{ color: 'white' }}>{hoverInfoRef.current.feature.properties.dominantCount} / {hoverInfoRef.current.feature.properties.totalSlots || 20} slots</span></div>
+                    )}
                   </>
                 )}
                 {hoverInfoRef.current.feature.properties.renderType === 'empty-slot' && (
@@ -1687,6 +1933,17 @@ export default function WorldMap() {
         />
       )}
 
+      {/* Alliance Coalition & Family Modal */}
+      {isCoalitionModalOpen && (
+        <AllianceCoalitionModal
+          isOpen={isCoalitionModalOpen}
+          onClose={() => setIsCoalitionModalOpen(false)}
+          coalitions={coalitions}
+          onSaveCoalitions={handleSaveCoalitions}
+          alliances={topAlliances}
+        />
+      )}
+
       {/* Full Modal Expand Fallback */}
       {expandedModalEntity && expandedModalEntity.type === 'island' && (
         <IslandModal 
@@ -1741,9 +1998,18 @@ export default function WorldMap() {
 
         {!isSidebarCollapsed && (
           <>
-            {/* Top 10 Alliances Legend */}
+            {/* Top 10 Alliances Legend & Coalition Families */}
             <div className="flex flex-col gap-1.5 mt-1">
-              <h2 className="text-xs font-bold text-primary uppercase tracking-wider">Top 10 Alliances</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold text-primary uppercase tracking-wider">Top 10 Alliances</h2>
+                <button
+                  onClick={() => setIsCoalitionModalOpen(true)}
+                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors cursor-pointer"
+                  title="Group main and sister/academy alliances into families"
+                >
+                  Families ({coalitions.length})
+                </button>
+              </div>
               <div className="flex flex-col gap-1">
                 {topAlliances.length > 0 ? topAlliances.slice(0, 10).map((a) => {
                   const activeColor = customColors[a.name] || a.color;
