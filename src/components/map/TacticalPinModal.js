@@ -48,6 +48,16 @@ export default function TacticalPinModal({
   const townX = town.islandX ?? town.x ?? 500;
   const townY = town.islandY ?? town.y ?? 500;
 
+  const timeoutRef = React.useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleSave = () => {
     const pinPayload = {
       id: existingPin?.id,
@@ -63,7 +73,7 @@ export default function TacticalPinModal({
     const updatedPins = saveTacticalPin(worldId, pinPayload);
     setSavedSuccess(true);
     if (onPinSaved) onPinSaved(pinPayload, updatedPins);
-    setTimeout(() => {
+    timeoutRef.current = setTimeout(() => {
       if (onClose) onClose();
     }, 600);
   };

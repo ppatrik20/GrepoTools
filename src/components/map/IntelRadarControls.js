@@ -19,7 +19,7 @@ export const DEFAULT_RADAR_FILTERS = {
  * IntelRadarControls: Symmetrical Floating HUD for Tactical Overlays (Milestone 2)
  * Positioned at: top-20 left-4 z-30 (mirroring PoliticalHeatmapLegend at top-20 right-4)
  */
-export default function IntelRadarControls({
+function IntelRadarControls({
   filters = DEFAULT_RADAR_FILTERS,
   onChange,
   counts = { ghosts: 0, sieges: 0, inactiveFarms: 0, total: 0 },
@@ -381,3 +381,5 @@ export default function IntelRadarControls({
     </div>
   );
 }
+
+export default React.memo(IntelRadarControls);

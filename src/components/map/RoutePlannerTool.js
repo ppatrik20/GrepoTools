@@ -69,7 +69,7 @@ export function formatDuration(totalSeconds) {
   return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-export default function RoutePlannerTool({
+function RoutePlannerTool({
   origin,
   target,
   onSwap,
@@ -150,7 +150,12 @@ export default function RoutePlannerTool({
       </div>
 
       {/* Distance Metric */}
-      {origin && target && (
+      {origin && target && origin.id === target.id && (
+        <div className="flex items-center justify-center text-xs px-2 mb-3 text-red-400 bg-red-900/20 py-2 rounded-lg border border-red-700/40 font-bold">
+          Origin and target cannot be the same town
+        </div>
+      )}
+      {origin && target && origin.id !== target.id && (
         <div className="flex items-center justify-between text-xs px-2 mb-3 text-slate-400 bg-slate-800/40 py-1.5 rounded-lg border border-slate-700/40">
           <span>
             {isSameIsland ? (
@@ -201,7 +206,9 @@ export default function RoutePlannerTool({
         </div>
       ) : (
         <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-800 rounded-xl">
-          {origin && !target ? (
+          {origin && target && origin.id === target.id ? (
+            <span className="text-red-400 font-bold">Origin and target cannot be the same town</span>
+          ) : origin && !target ? (
             <span className="text-emerald-300 font-medium">Origin set: <strong>{origin.name}</strong>. Now click any other town on the map!</span>
           ) : (
             <span>Click any town on the map to set Origin, then click another town to calculate live travel times.</span>
@@ -229,3 +236,5 @@ export default function RoutePlannerTool({
     </div>
   );
 }
+
+export default React.memo(RoutePlannerTool);

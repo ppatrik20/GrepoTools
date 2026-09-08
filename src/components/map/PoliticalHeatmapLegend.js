@@ -6,7 +6,7 @@ import {
   Sliders, AlertTriangle 
 } from 'lucide-react';
 
-export default function PoliticalHeatmapLegend({
+function PoliticalHeatmapLegend({
   territories = [],
   customColors = {},
   onColorChange,
@@ -213,3 +213,5 @@ export default function PoliticalHeatmapLegend({
     </div>
   );
 }
+
+export default React.memo(PoliticalHeatmapLegend);

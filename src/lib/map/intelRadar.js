@@ -3,6 +3,7 @@
  * Tactical Intel Radar Algorithms Engine
  * Milestone 2 (F4, F5, F6)
  */
+import { worldToLng, worldToLat } from './coordProjection.js';
 
 /**
  * Calculates estimated vacancy days based on town points decay from maximum.
@@ -104,8 +105,8 @@ export function filterIntelOverlays(towns = [], players = [], conquests = [], fi
       lng = Number(raw.coordinates[0]);
       lat = Number(raw.coordinates[1]);
     } else {
-      lng = (x / 1000) * 360 - 180;
-      lat = -((y / 1000) * 180 - 90);
+      lng = worldToLng(x);
+      lat = worldToLat(y);
     }
 
     const pName = typeof raw.player === 'object' ? raw.player?.name : raw.player;
@@ -133,41 +134,15 @@ export function filterIntelOverlays(towns = [], players = [], conquests = [], fi
   const siegeFeatures = [];
   const farmFeatures = [];
 
-  // 1. Ghost Hunter Radar
-  if (ghostHunter) {
-    const minPts = Number.isFinite(Number(minGhostPoints)) ? Math.max(0, Number(minGhostPoints)) : 0;
-    safeTowns.forEach(t => {
-      const data = extractTownData(t);
-      if (!data) return;
+  const minPts = Number.isFinite(Number(minGhostPoints)) ? Math.max(0, Number(minGhostPoints)) : 0;
+  const maxDelta = Number.isFinite(Number(maxMomentumDelta)) ? Number(maxMomentumDelta) : 0;
 
-      if (data.isGhost && data.points >= minPts) {
-        const estimatedVacancyDays = estimateGhostVacancyDays(data.points);
-        ghostFeatures.push({
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [data.lng, data.lat] },
-          properties: {
-            townId: data.id,
-            name: data.raw.name || (data.id ? `Ghost #${data.id}` : 'Ghost Town'),
-            points: data.points,
-            x: data.x,
-            y: data.y,
-            lng: data.lng,
-            lat: data.lat,
-            indicatorType: "ghost_skull",
-            estimatedVacancyDays
-          }
-        });
-      }
-    });
-  }
-
-  // 2. Active Siege Radar
+  const townConquestCounts = new Map();
   if (activeSiege) {
     const now = Date.now();
     const safeRecentHours = Number.isFinite(Number(recentHours)) ? Math.max(0, Number(recentHours)) : 48;
     const windowMs = safeRecentHours * 3600 * 1000;
 
-    const townConquestCounts = new Map();
     safeConquests.forEach(c => {
       if (!c) return;
       const cTime = typeof c.time === 'string' ? new Date(c.time).getTime() : Number(c.time || 0);
@@ -178,11 +153,34 @@ export function filterIntelOverlays(towns = [], players = [], conquests = [], fi
         }
       }
     });
+  }
 
-    safeTowns.forEach(t => {
-      const data = extractTownData(t);
-      if (!data) return;
+  safeTowns.forEach(t => {
+    const data = extractTownData(t);
+    if (!data) return;
 
+    // 1. Ghost Hunter check
+    if (ghostHunter && data.isGhost && data.points >= minPts) {
+      const estimatedVacancyDays = estimateGhostVacancyDays(data.points);
+      ghostFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [data.lng, data.lat] },
+        properties: {
+          townId: data.id,
+          name: data.raw.name || (data.id ? `Ghost #${data.id}` : 'Ghost Town'),
+          points: data.points,
+          x: data.x,
+          y: data.y,
+          lng: data.lng,
+          lat: data.lat,
+          indicatorType: "ghost_skull",
+          estimatedVacancyDays
+        }
+      });
+    }
+
+    // 2. Active Siege check
+    if (activeSiege) {
       const conquestCount = townConquestCounts.get(data.id) || (data.isBesieged ? 1 : 0);
       if (conquestCount > 0) {
         siegeFeatures.push({
@@ -200,17 +198,10 @@ export function filterIntelOverlays(towns = [], players = [], conquests = [], fi
           }
         });
       }
-    });
-  }
+    }
 
-  // 3. Inactive Farm Finder
-  if (inactiveFarms) {
-    const maxDelta = Number.isFinite(Number(maxMomentumDelta)) ? Number(maxMomentumDelta) : 0;
-
-    safeTowns.forEach(t => {
-      const data = extractTownData(t);
-      if (!data || data.isGhost || !data.pId || data.pName === 'Ghost Town') return;
-
+    // 3. Inactive Farm check
+    if (inactiveFarms && !data.isGhost && data.pId && data.pName !== 'Ghost Town') {
       const playerMeta = playerMap.get(data.pId) || {};
       const momentumDelta = Number(playerMeta.momentumDelta ?? playerMeta.pointDelta ?? data.raw.momentumDelta ?? -50);
 
@@ -236,8 +227,8 @@ export function filterIntelOverlays(towns = [], players = [], conquests = [], fi
           }
         });
       }
-    });
-  }
+    }
+  });
 
   return {
     ghosts: { type: "FeatureCollection", features: ghostFeatures },

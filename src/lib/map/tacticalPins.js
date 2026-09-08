@@ -3,6 +3,7 @@
  * Tactical Alliance Pinboard & Operation Markers System
  * Milestone 4 (F11, F12, F13)
  */
+import { worldToLng, worldToLat } from './coordProjection.js';
 
 export const PIN_TYPES = {
   PRIMARY_TARGET: { label: 'Primary Target', icon: '🎯', color: '#ef4444', badge: 'bg-red-500/20 text-red-300 border-red-500/40' },
@@ -56,8 +57,8 @@ export function saveTacticalPin(worldId, pin, storage = (typeof localStorage !==
 
   const townX = Number(pin.townX ?? pin.x ?? 500);
   const townY = Number(pin.townY ?? pin.y ?? 500);
-  const lng = pin.lng ?? ((townX / 1000) * 360 - 180);
-  const lat = pin.lat ?? (-((townY / 1000) * 180 - 90));
+  const lng = pin.lng ?? worldToLng(townX);
+  const lat = pin.lat ?? worldToLat(townY);
 
   const newPin = {
     id: pin.id || `pin_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,

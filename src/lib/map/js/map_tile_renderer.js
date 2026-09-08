@@ -529,7 +529,7 @@ define('map/map_tile_renderer', function (require) {
 				return;
 			}
 			//if no data present: add tiles to queue and check again later
-			if (this.queue_enbled && image.undef) {
+			if (this.queue_enabled && image.undef) {
 				this.queue.push({
 					'tile': tile,
 					'x': x,

@@ -30,6 +30,13 @@ export default function MinimapRadar({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = CANVAS_SIZE * dpr;
+    canvas.height = CANVAS_SIZE * dpr;
+    canvas.style.width = `${CANVAS_SIZE}px`;
+    canvas.style.height = `${CANVAS_SIZE}px`;
+    ctx.scale(dpr, dpr);
+
     // 1. Background Void
     ctx.fillStyle = '#070b14';
     ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);

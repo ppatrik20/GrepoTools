@@ -3,6 +3,7 @@
  * Trajectory & Animated Transit Engine
  * Milestone 3 (F7, F8, F9, F10)
  */
+import { worldToLng, worldToLat } from './coordProjection.js';
 
 /**
  * Calculates smooth quadratic Bézier flight curve coordinates between two map points.
@@ -16,10 +17,10 @@
 export function calculateArcTrajectory(origin, target, camber = 0.20, steps = 40) {
   if (!origin || !target) return [];
 
-  const oLng = origin.lng ?? ((Number(origin.islandX ?? origin.x ?? 500) / 1000) * 360 - 180);
-  const oLat = origin.lat ?? (-((Number(origin.islandY ?? origin.y ?? 500) / 1000) * 180 - 90));
-  const tLng = target.lng ?? ((Number(target.islandX ?? target.x ?? 500) / 1000) * 360 - 180);
-  const tLat = target.lat ?? (-((Number(target.islandY ?? target.y ?? 500) / 1000) * 180 - 90));
+  const oLng = origin.lng ?? worldToLng(Number(origin.islandX ?? origin.x ?? 500));
+  const oLat = origin.lat ?? worldToLat(Number(origin.islandY ?? origin.y ?? 500));
+  const tLng = target.lng ?? worldToLng(Number(target.islandX ?? target.x ?? 500));
+  const tLat = target.lat ?? worldToLat(Number(target.islandY ?? target.y ?? 500));
 
   const dLng = tLng - oLng;
   const dLat = tLat - oLat;

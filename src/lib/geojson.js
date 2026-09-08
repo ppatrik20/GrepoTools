@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache';
 import { PALETTE } from '@/lib/constants';
 import islandDefinitions from '@/lib/map/island_definitions.json';
 import alignmentMetadata from '@/lib/map/alignment_metadata.json';
+import { pixelToLng, pixelToLat } from '@/lib/map/coordProjection';
 
 // In-game directional and colonization offsets extracted from Grepolis client
 const TOWN_DIR_OFFSETS = {
@@ -12,10 +13,6 @@ const TOWN_DIR_OFFSETS = {
   se: { x: 15, y: 13 }
 };
 const FREE_SLOT_OFFSET = { x: 18, y: 18 };
-
-// Grepolis map is 1000 tiles * 128px = 128,000 global pixels
-const pixelToLng = (px) => (px / 128000) * 360 - 180;
-const pixelToLat = (py) => -((py / 128000) * 180 - 90);
 
 /**
  * Calculates official town visual stage based on point thresholds

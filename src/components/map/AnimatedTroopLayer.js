@@ -26,15 +26,24 @@ function formatSecondsToHMS(totalSeconds) {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-export default function AnimatedTroopLayer({ transits = [] }) {
+function AnimatedTroopLayer({ transits = [] }) {
   const [now, setNow] = useState(() => Date.now());
   const rafId = useRef(null);
+  const hasTransits = Array.isArray(transits) && transits.length > 0;
 
   useEffect(() => {
+    if (!hasTransits) return;
+
     let active = true;
-    const tick = () => {
+    let lastTick = 0;
+    const FRAME_INTERVAL_MS = 33; // ~30fps - smooth animation while cutting React reconciliation by 50%
+
+    const tick = (timestamp) => {
       if (!active) return;
-      setNow(Date.now());
+      if (timestamp - lastTick >= FRAME_INTERVAL_MS) {
+        lastTick = timestamp;
+        setNow(Date.now());
+      }
       rafId.current = requestAnimationFrame(tick);
     };
     rafId.current = requestAnimationFrame(tick);
@@ -43,9 +52,9 @@ export default function AnimatedTroopLayer({ transits = [] }) {
       active = false;
       if (rafId.current) cancelAnimationFrame(rafId.current);
     };
-  }, []);
+  }, [hasTransits]);
 
-  if (!Array.isArray(transits) || transits.length === 0) return null;
+  if (!hasTransits) return null;
 
   return (
     <>
@@ -104,3 +113,5 @@ export default function AnimatedTroopLayer({ transits = [] }) {
     </>
   );
 }
+
+export default React.memo(AnimatedTroopLayer);

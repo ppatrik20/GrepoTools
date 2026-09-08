@@ -104,7 +104,9 @@ export function AppContextProvider({ children }) {
 
       if (data && data.player) {
         setActivePlayer(data.player);
-        setActivePlayerName(data.player.name);
+        if (data.player.name.toLowerCase() !== activePlayerName.toLowerCase()) {
+          setActivePlayerName(data.player.name);
+        }
         setMasterData(data);
       } else {
         setActivePlayer(null);
@@ -131,21 +133,36 @@ export function AppContextProvider({ children }) {
     } catch (e) {}
   }, []);
 
+  const providerValue = useMemo(() => ({
+    worlds,
+    activeWorldId,
+    activeWorld,
+    switchWorld,
+    activePlayerName,
+    activePlayer,
+    masterData,
+    switchPlayer,
+    refreshWorlds,
+    refreshActivePlayer,
+    loadingWorlds,
+    loadingPlayer
+  }), [
+    worlds,
+    activeWorldId,
+    activeWorld,
+    switchWorld,
+    activePlayerName,
+    activePlayer,
+    masterData,
+    switchPlayer,
+    refreshWorlds,
+    refreshActivePlayer,
+    loadingWorlds,
+    loadingPlayer
+  ]);
+
   return (
-    <AppContext.Provider value={{
-      worlds,
-      activeWorldId,
-      activeWorld,
-      switchWorld,
-      activePlayerName,
-      activePlayer,
-      masterData,
-      switchPlayer,
-      refreshWorlds,
-      refreshActivePlayer,
-      loadingWorlds,
-      loadingPlayer
-    }}>
+    <AppContext.Provider value={providerValue}>
       {children}
     </AppContext.Provider>
   );

@@ -117,6 +117,8 @@ export default function UnifiedSearchPanel({
     }
   };
 
+  const abortControllerRef = useRef(null);
+
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setResults(null);
@@ -126,17 +128,28 @@ export default function UnifiedSearchPanel({
 
     const timer = setTimeout(async () => {
       setLoading(true);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
       try {
-        const res = await fetch(`/api/world/search?world=${worldId}&q=${encodeURIComponent(query.trim())}`);
+        const res = await fetch(`/api/world/search?world=${worldId}&q=${encodeURIComponent(query.trim())}`, {
+          signal: abortControllerRef.current.signal
+        });
         if (res.ok) {
           const data = await res.json();
           setResults(data);
           setIsOpen(true);
         }
       } catch (err) {
-        console.error("Search error:", err);
+        if (err.name !== 'AbortError') {
+          console.error("Search error:", err);
+        }
       } finally {
-        setLoading(false);
+        if (abortControllerRef.current && !abortControllerRef.current.signal.aborted) {
+          setLoading(false);
+        }
       }
     }, 200);
 

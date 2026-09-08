@@ -111,9 +111,11 @@ define('map/mixins/mouse_handlers', function () {
                 $document = $(document);
 
             if (event.type === "touchend") {
-                var x = event.originalEvent.changedTouches[0].pageX - window.pageXOffset;
-                var y = event.originalEvent.changedTouches[0].pageY - window.pageYOffset;
-                target = document.elementFromPoint(x, y);
+                if (event.originalEvent && event.originalEvent.changedTouches && event.originalEvent.changedTouches.length > 0) {
+                    var x = event.originalEvent.changedTouches[0].pageX - window.pageXOffset;
+                    var y = event.originalEvent.changedTouches[0].pageY - window.pageYOffset;
+                    target = document.elementFromPoint(x, y);
+                }
             }
 
             this.currently_scrolling = false;
@@ -186,7 +188,7 @@ define('map/mixins/mouse_handlers', function () {
                 scroll = this.scroll;
 
             if (this.last_move_x === 0 && this.last_move_y === 0 && (reset_last_move === undefined || reset_last_move === true)) {
-                if (event.touches) {
+                if (event.touches && event.touches.length > 0) {
                     this.last_move_x = event.touches[0].pageX;
                     this.last_move_y = event.touches[0].pageY;
                 } else {
@@ -195,7 +197,7 @@ define('map/mixins/mouse_handlers', function () {
                 }
             }
 
-            if (event.touches) {
+            if (event.touches && event.touches.length > 0) {
                 if (!Game.isHybridApp()) {
                     event.preventDefault();
                 }

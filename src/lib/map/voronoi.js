@@ -3,6 +3,8 @@
  * Voronoi Political Territory Heatmap & Contested Frontline Calculation Engine
  * Milestone 1 (F1, F2)
  */
+import { worldToLng, worldToLat } from './coordProjection.js';
+
 
 /**
  * Computes GPU-ready GeoJSON Polygon FeatureCollection representing alliance spheres of influence.
@@ -60,8 +62,8 @@ export function computeAllianceVoronoi(towns = [], alliances = [], options = {})
       let y = Number(t.islandY ?? t.y ?? 500);
       if (!Number.isFinite(x)) x = 500;
       if (!Number.isFinite(y)) y = 500;
-      const lng = (x / 1000) * 360 - 180;
-      const lat = -((y / 1000) * 180 - 90);
+      const lng = worldToLng(x);
+      const lat = worldToLat(y);
       return [lng, lat, x, y];
     });
 
@@ -144,8 +146,8 @@ export function computeContestedFrontlines(towns = [], voronoiData = { features:
       let [ix, iy] = key.split('_').map(Number);
       if (!Number.isFinite(ix)) ix = 500;
       if (!Number.isFinite(iy)) iy = 500;
-      const centerLng = (ix / 1000) * 360 - 180;
-      const centerLat = -((iy / 1000) * 180 - 90);
+      const centerLng = worldToLng(ix);
+      const centerLat = worldToLat(iy);
       const aList = Array.from(allianceIds);
       const tension = islandTowns.length > 0 ? Math.min(1.0, (allianceIds.size / islandTowns.length) * 1.5) : 0.5;
 
