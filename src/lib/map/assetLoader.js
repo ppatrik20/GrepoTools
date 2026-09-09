@@ -45,20 +45,15 @@ export function registerMapAssets(map, onComplete) {
 
   mapInstance.on('styleimagemissing', handleMissingImage);
 
-  // Eagerly pre-load all assets
+  // Eagerly pre-load town and slot assets (islands are now vector polygons)
   const assetList = [
     { id: 'town_5', url: '/map/towns/town_5.png' },
     { id: 'town_4', url: '/map/towns/town_4.png' },
     { id: 'town_3', url: '/map/towns/town_3.png' },
     { id: 'town_2', url: '/map/towns/town_2.png' },
     { id: 'town_1', url: '/map/towns/town_1.png' },
-    { id: 'empty_slot', url: '/map/slots/empty_slot.png' },
-    { id: 'rock_island', url: '/map/islands/rock_island.png' }
+    { id: 'empty_slot', url: '/map/slots/empty_slot.png' }
   ];
-
-  ALL_ISLAND_TYPES.forEach(t => {
-    assetList.push({ id: `island_${t}`, url: `/map/islands/island_${t}.png` });
-  });
 
   let loadedCount = 0;
   const total = assetList.length;

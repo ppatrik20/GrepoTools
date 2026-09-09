@@ -29,8 +29,9 @@ import { calculateArcTrajectory } from "@/lib/map/trajectories";
 import { getTacticalPins, saveTacticalPin, removeTacticalPin, PIN_TYPES, PIN_PRIORITIES } from "@/lib/map/tacticalPins";
 import { registerMapAssets, ALL_ISLAND_TYPES } from "@/lib/map/assetLoader";
 import islandDefinitions from "@/lib/map/island_definitions.json";
+import islandOutlines from "@/lib/map/island_outlines.json";
 import { useApp } from "@/context/AppContext";
-import { worldToLng, worldToLat, lngToWorldX, latToWorldY, worldToLngLat } from "@/lib/map/coordProjection";
+import { worldToLng, worldToLat, lngToWorldX, latToWorldY, worldToLngLat, pixelToLng, pixelToLat } from "@/lib/map/coordProjection";
 
 const MAP_STYLE = {
   version: 8,
@@ -330,8 +331,129 @@ export default function WorldMap() {
       if (!aEmpty && bEmpty) return 1;
       return 0;
     });
-    return { type: 'FeatureCollection', features };
+     return { type: 'FeatureCollection', features };
   }, [partitionedFeatures.islands, customColors]);
+
+  // Island Vector Polygon FeatureCollections (generated from Point features + outline data)
+  const islandPolygonsData = useMemo(() => {
+    if (!partitionedFeatures.islands.length) return null;
+    let features = partitionedFeatures.islands;
+
+    // Apply custom alliance colors if present
+    if (Object.keys(customColors).length > 0) {
+      features = features.map(f => {
+        const ally = f.properties.dominantAlliance;
+        if (ally && ally !== "None" && customColors[ally]) {
+          return { ...f, properties: { ...f.properties, islandColor: customColors[ally] } };
+        }
+        return f;
+      });
+    }
+
+    const polygonFeatures = features
+      .map(island => {
+        const type = island.properties.islandType;
+        const outline = islandOutlines[type];
+        if (!outline || !outline.exterior || outline.exterior.length < 3) return null;
+
+        const ix = island.properties.x;
+        const iy = island.properties.y;
+        const tileW = outline.width || island.properties.width || 7;
+        const tileH = outline.height || island.properties.height || 4;
+
+        const islandPixelX = ix * 128;
+        const islandPixelY = iy * 128 + ((ix & 1) ? 64 : 0);
+
+        const polygon = outline.exterior.map(([nx, ny]) => [
+          pixelToLng(islandPixelX + nx * tileW * 128),
+          pixelToLat(islandPixelY + ny * tileH * 128)
+        ]);
+        polygon.push(polygon[0]); // Close the ring
+
+        return {
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [polygon] },
+          properties: { ...island.properties, renderType: 'island' }
+        };
+      })
+      .filter(Boolean);
+
+    if (polygonFeatures.length === 0) return null;
+    return { type: 'FeatureCollection', features: polygonFeatures };
+  }, [partitionedFeatures.islands, customColors]);
+
+  // Island inner contour LineStrings for terrain detail at high zoom
+  const islandContoursData = useMemo(() => {
+    if (!partitionedFeatures.islands.length) return null;
+
+    const contourFeatures = [];
+    for (const island of partitionedFeatures.islands) {
+      const type = island.properties.islandType;
+      const outline = islandOutlines[type];
+      if (!outline || !outline.contours || outline.contours.length === 0) continue;
+
+      const ix = island.properties.x;
+      const iy = island.properties.y;
+      const tileW = outline.width || island.properties.width || 7;
+      const tileH = outline.height || island.properties.height || 4;
+
+      const islandPixelX = ix * 128;
+      const islandPixelY = iy * 128 + ((ix & 1) ? 64 : 0);
+
+      for (const contour of outline.contours) {
+        if (contour.length < 3) continue;
+
+        const coords = contour.map(([nx, ny]) => [
+          pixelToLng(islandPixelX + nx * tileW * 128),
+          pixelToLat(islandPixelY + ny * tileH * 128)
+        ]);
+        coords.push(coords[0]); // Close the ring
+
+        contourFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: coords },
+          properties: { islandId: island.properties.id }
+        });
+      }
+    }
+
+    if (contourFeatures.length === 0) return null;
+    return { type: 'FeatureCollection', features: contourFeatures };
+  }, [partitionedFeatures.islands]);
+
+  // Rock island vector polygons (small irregular shapes)
+  const rockPolygonsData = useMemo(() => {
+    if (!partitionedFeatures.rocks.length) return null;
+    const rockOutline = islandOutlines['999'];
+    if (!rockOutline) return null;
+
+    const features = partitionedFeatures.rocks
+      .map(rock => {
+        const ix = rock.properties.x;
+        const iy = rock.properties.y;
+        const tileW = rockOutline.width || 4;
+        const tileH = rockOutline.height || 3;
+
+        const islandPixelX = ix * 128;
+        const islandPixelY = iy * 128 + ((ix & 1) ? 64 : 0);
+
+        const polygon = rockOutline.exterior.map(([nx, ny]) => [
+          pixelToLng(islandPixelX + nx * tileW * 128),
+          pixelToLat(islandPixelY + ny * tileH * 128)
+        ]);
+        polygon.push(polygon[0]);
+
+        return {
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [polygon] },
+          properties: { ...rock.properties, renderType: 'rock' }
+        };
+      })
+      .filter(Boolean);
+
+    if (features.length === 0) return null;
+    return { type: 'FeatureCollection', features };
+  }, [partitionedFeatures.rocks]);
 
   const rocksData = useMemo(() => {
     if (!partitionedFeatures.rocks.length) return null;
@@ -702,7 +824,7 @@ export default function WorldMap() {
           }}
           interactiveLayerIds={[
             "town-points", "town-sprites", "town-flags", 
-            "islands-points", "island-sprites", "rocks-points", 
+            "islands-points", "island-terrain-fill", "rock-terrain-fill", 
             "empty-slots-points", "empty-slots-sprites",
             "ghost-radar-markers", "siege-radar-markers", "inactive-farm-markers",
             "tactical-pin-markers", "island-halos-ring", "enemy-beachheads-point"
@@ -1235,98 +1357,181 @@ export default function WorldMap() {
                     5.5, 9
                   ],
                   "circle-color": ["get", "islandColor"],
-                  "circle-opacity": 0.45,
+                  "circle-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.0, 0.45,
+                    4.5, 0.45,
+                    5.5, 0.0
+                  ],
                   "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#0f172a"
-                }}
-              />
-
-              {/* Tactical Zoom Island Terrain Sprites (Zoom >= 5.0) */}
-              <Layer 
-                id="island-sprites"
-                type="symbol"
-                minzoom={5.0}
-                layout={{
-                  "icon-image": [
-                    "match", ["get", "islandType"],
-                    1, "island_1",
-                    2, "island_2",
-                    3, "island_3",
-                    4, "island_4",
-                    5, "island_5",
-                    6, "island_6",
-                    7, "island_7",
-                    8, "island_8",
-                    9, "island_9",
-                    10, "island_10",
-                    11, "island_11",
-                    12, "island_12",
-                    13, "island_13",
-                    14, "island_14",
-                    15, "island_15",
-                    16, "island_16",
-                    37, "island_37",
-                    38, "island_38",
-                    39, "island_39",
-                    40, "island_40",
-                    41, "island_41",
-                    42, "island_42",
-                    43, "island_43",
-                    44, "island_44",
-                    45, "island_45",
-                    46, "island_46",
-                    47, "island_47",
-                    48, "island_48",
-                    49, "island_49",
-                    50, "island_50",
-                    51, "island_51",
-                    52, "island_52",
-                    53, "island_53",
-                    54, "island_54",
-                    55, "island_55",
-                    56, "island_56",
-                    57, "island_57",
-                    58, "island_58",
-                    59, "island_59",
-                    60, "island_60",
-                    999, "rock_island",
-                    "rock_island"
-                  ],
-                  "icon-size": [
-                    "interpolate", ["exponential", 2], ["zoom"],
-                    5.0, 0.256,
-                    6.0, 0.512,
-                    7.0, 1.024,
-                    8.0, 2.048,
-                    9.0, 4.096,
-                    10.0, 8.192
-                  ],
-                  "icon-allow-overlap": true,
-                  "icon-ignore-placement": true,
-                  "icon-anchor": "center"
                 }}
               />
             </Source>
           )}
 
-          {/* Rocks Layer (Subtle reefs at Zoom >= 6.0) */}
-          {rocksData && (
-            <Source id="rocks-source" type="geojson" data={rocksData}>
-              <Layer 
-                id="rocks-points"
-                type="circle"
+          {/* Island Vector Terrain Polygons (Zoom >= 4.5) */}
+          {islandPolygonsData && (
+            <Source id="island-polygons-source" type="geojson" data={islandPolygonsData}>
+              {/* Dark terrain fill - slightly lighter than ocean for contrast */}
+              <Layer
+                id="island-terrain-fill"
+                type="fill"
+                minzoom={4.5}
+                paint={{
+                  "fill-color": "#0f1729",
+                  "fill-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 0,
+                    5.5, 0.9
+                  ]
+                }}
+              />
+
+              {/* Alliance sovereignty tint overlay */}
+              <Layer
+                id="island-sovereignty-tint"
+                type="fill"
+                minzoom={4.5}
+                paint={{
+                  "fill-color": ["get", "islandColor"],
+                  "fill-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 0,
+                    5.5, [
+                      "case",
+                      ["!=", ["get", "islandColor"], "#1e293b"],
+                      0.12,
+                      0
+                    ],
+                    8.0, [
+                      "case",
+                      ["!=", ["get", "islandColor"], "#1e293b"],
+                      0.08,
+                      0
+                    ]
+                  ]
+                }}
+              />
+
+              {/* Outer glow effect - wider blurred line */}
+              <Layer
+                id="island-outline-glow"
+                type="line"
+                minzoom={4.5}
+                paint={{
+                  "line-color": "#38bdf8",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 2.0,
+                    7.0, 5.0,
+                    10.0, 8.0
+                  ],
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 0,
+                    5.5, 0.12,
+                    7.0, 0.18
+                  ],
+                  "line-blur": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 2.0,
+                    7.0, 4.0,
+                    10.0, 6.0
+                  ]
+                }}
+              />
+
+              {/* Crisp main outline */}
+              <Layer
+                id="island-outline"
+                type="line"
+                minzoom={4.5}
+                paint={{
+                  "line-color": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, "#64748b",
+                    6.0, "#38bdf8"
+                  ],
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 0.4,
+                    6.0, 0.8,
+                    8.0, 1.5,
+                    10.0, 2.0
+                  ],
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.5, 0,
+                    5.5, 0.75,
+                    7.0, 0.85
+                  ]
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Island Inner Contour Lines (Zoom >= 6.5) */}
+          {islandContoursData && (
+            <Source id="island-contours-source" type="geojson" data={islandContoursData}>
+              <Layer
+                id="island-contour-lines"
+                type="line"
+                minzoom={6.5}
+                paint={{
+                  "line-color": "#1e3a5f",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    6.5, 0.3,
+                    8.0, 0.6,
+                    10.0, 1.0
+                  ],
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    6.5, 0,
+                    7.5, 0.3,
+                    9.0, 0.45
+                  ],
+                  "line-dasharray": [4, 4]
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Rock Island Vector Polygons (Zoom >= 6.0) */}
+          {rockPolygonsData && (
+            <Source id="rock-polygons-source" type="geojson" data={rockPolygonsData}>
+              <Layer
+                id="rock-terrain-fill"
+                type="fill"
                 minzoom={6.0}
                 paint={{
-                  "circle-radius": [
+                  "fill-color": "#111827",
+                  "fill-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    6.0, 1.5,
-                    8.0, 3.0,
-                    10.0, 5.0
+                    6.0, 0,
+                    7.0, 0.7
+                  ]
+                }}
+              />
+              <Layer
+                id="rock-outline"
+                type="line"
+                minzoom={6.0}
+                paint={{
+                  "line-color": "#475569",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    6.0, 0.3,
+                    8.0, 0.8,
+                    10.0, 1.2
                   ],
-                  "circle-color": ["get", "islandColor"],
-                  "circle-opacity": 0.3,
-                  "circle-stroke-width": 1,
-                  "circle-stroke-color": "#0f172a"
+                  "line-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    6.0, 0,
+                    7.0, 0.5,
+                    9.0, 0.65
+                  ]
                 }}
               />
             </Source>
