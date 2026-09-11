@@ -311,53 +311,153 @@ export function computeMaritimeBoundaries(islandSummaryList = [], options = {}) 
     });
   });
 
-  // 4. Compute Frontlines between Opposing Alliance Maritime Waters
+function chaikinSmooth(points, iterations = 2) {
+  if (points.length < 3) return points;
+  let current = points;
+  for (let it = 0; it < iterations; it++) {
+    const next = [current[0]];
+    for (let i = 0; i < current.length - 1; i++) {
+      const p0 = current[i];
+      const p1 = current[i + 1];
+      const q = [0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]];
+      const r = [0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1]];
+      next.push(q, r);
+    }
+    next.push(current[current.length - 1]);
+    current = next;
+  }
+  return current;
+}
+
+  // 4. Compute Continuous Frontlines between Opposing Alliance Maritime Waters
   const frontlineFeatures = [];
   const populatedIslands = islandSummaryList.filter(i => i.status !== ISLAND_STATUS.NEUTRAL && i.dominantAlliance !== 'None');
+
+  // Group opposing alliance interaction midpoints
+  const allianceInteractions = new Map();
 
   for (let i = 0; i < populatedIslands.length; i++) {
     for (let j = i + 1; j < populatedIslands.length; j++) {
       const islA = populatedIslands[i];
       const islB = populatedIslands[j];
 
-      // Frontline only exists between DIFFERENT rival alliances
       if (islA.dominantAlliance === islB.dominantAlliance) continue;
 
       const dist = Math.hypot(islB.centerLng - islA.centerLng, islB.centerLat - islA.centerLat);
 
-      // Adjacent rival islands within maritime frontline engagement distance
       if (dist <= clusterMaxGapDeg * 1.3) {
         const midLng = (islA.centerLng + islB.centerLng) / 2;
         const midLat = (islA.centerLat + islB.centerLat) / 2;
 
-        // Perpendicular vector for the maritime border line segment
         const dx = islB.centerLng - islA.centerLng;
         const dy = islB.centerLat - islA.centerLat;
         const len = Math.hypot(dx, dy) || 1;
-        const nx = (-dy / len) * 0.45;
-        const ny = (dx / len) * 0.45;
+        const nx = -dy / len;
+        const ny = dx / len;
 
         const tension = Math.min(1.0, 0.4 + (1.0 - dist / (clusterMaxGapDeg * 1.3)) * 0.6);
 
-        frontlineFeatures.push({
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [Number((midLng - nx).toFixed(5)), Number((midLat - ny).toFixed(5))],
-              [Number((midLng + nx).toFixed(5)), Number((midLat + ny).toFixed(5))]
-            ]
-          },
-          properties: {
-            allianceA: islA.dominantAlliance,
-            allianceB: islB.dominantAlliance,
-            tension: +tension.toFixed(2),
-            isFrontline: true
-          }
+        const aA = islA.dominantAlliance < islB.dominantAlliance ? islA.dominantAlliance : islB.dominantAlliance;
+        const aB = islA.dominantAlliance < islB.dominantAlliance ? islB.dominantAlliance : islA.dominantAlliance;
+        const pairKey = `${aA}|${aB}`;
+
+        if (!allianceInteractions.has(pairKey)) {
+          allianceInteractions.set(pairKey, {
+            allianceA: aA,
+            allianceB: aB,
+            points: []
+          });
+        }
+
+        allianceInteractions.get(pairKey).points.push({
+          lng: midLng,
+          lat: midLat,
+          nx,
+          ny,
+          tension,
+          dist
         });
       }
     }
   }
+
+  // Chain and smooth interaction points into continuous battlefronts
+  allianceInteractions.forEach(interaction => {
+    const pts = interaction.points;
+    if (pts.length === 0) return;
+
+    // Cluster points within spatial proximity into frontier chains
+    const used = new Set();
+    const chains = [];
+
+    for (let i = 0; i < pts.length; i++) {
+      if (used.has(i)) continue;
+      const chain = [pts[i]];
+      used.add(i);
+
+      let extended = true;
+      while (extended) {
+        extended = false;
+        const last = chain[chain.length - 1];
+        let bestDist = Infinity;
+        let bestIdx = -1;
+
+        for (let j = 0; j < pts.length; j++) {
+          if (used.has(j)) continue;
+          const d = Math.hypot(pts[j].lng - last.lng, pts[j].lat - last.lat);
+          if (d <= clusterMaxGapDeg * 1.1 && d < bestDist) {
+            bestDist = d;
+            bestIdx = j;
+          }
+        }
+
+        if (bestIdx !== -1) {
+          chain.push(pts[bestIdx]);
+          used.add(bestIdx);
+          extended = true;
+        }
+      }
+      chains.push(chain);
+    }
+
+    // Convert each chain into a continuous smoothed LineString
+    chains.forEach(chain => {
+      let coords = [];
+      const avgTension = chain.reduce((s, p) => s + p.tension, 0) / chain.length;
+
+      if (chain.length === 1) {
+        // Single point: extend perpendicular to create a clear border segment
+        const p = chain[0];
+        const span = 0.50;
+        coords = [
+          [p.lng - p.nx * span, p.lat - p.ny * span],
+          [p.lng + p.nx * span, p.lat + p.ny * span]
+        ];
+      } else {
+        coords = chain.map(p => [p.lng, p.lat]);
+        coords = chaikinSmooth(coords, 2);
+      }
+
+      const formatted = coords.map(([lng, lat]) => [
+        Number(lng.toFixed(5)),
+        Number(lat.toFixed(5))
+      ]);
+
+      frontlineFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: formatted
+        },
+        properties: {
+          allianceA: interaction.allianceA,
+          allianceB: interaction.allianceB,
+          tension: +avgTension.toFixed(2),
+          isFrontline: true
+        }
+      });
+    });
+  });
 
   return {
     oceanBasinsGeoJSON: { type: 'FeatureCollection', features: basinFeatures },

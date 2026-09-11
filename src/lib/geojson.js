@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache';
 import { PALETTE } from '@/lib/constants';
 import islandDefinitions from '@/lib/map/island_definitions.json';
 import alignmentMetadata from '@/lib/map/alignment_metadata.json';
+import islandOutlines from '@/lib/map/island_outlines.json';
 import { pixelToLng, pixelToLat } from '@/lib/map/coordProjection';
 
 // In-game directional and colonization offsets extracted from Grepolis client
@@ -173,7 +174,7 @@ export async function generateGeoJSON(worldId = 'hu119') {
         id: island.id,
         x: island.x,
         y: island.y,
-        islandType: isColonizable ? island.type : 999,
+        islandType: islandOutlines[island.type] ? island.type : (isColonizable ? island.type : 999),
         img: islandDef?.img || 'rock_island.png',
         width: tileWidth,
         height: tileHeight,
@@ -225,12 +226,17 @@ export async function generateGeoJSON(worldId = 'hu119') {
         slotLng = pixelToLng(townPixelX);
         slotLat = pixelToLat(townPixelY);
       } else {
-        // Orbit fallback only if type definition is missing (non-colonizable / rocks)
+        // Coastal anchorage placement for rocks or islands without explicit slot definitions
         dir = 'nw';
-        const orbitRadius = isRock ? 0.10 : 0.15;
-        const angle = (slot / totalSlotCount) * Math.PI * 2;
-        slotLat = islandLat + Math.sin(angle) * orbitRadius;
-        slotLng = islandLng + Math.cos(angle) * orbitRadius / Math.cos(islandLat * Math.PI / 180);
+        const dirOffset = town ? (TOWN_DIR_OFFSETS[dir] || { x: 0, y: 0 }) : FREE_SLOT_OFFSET;
+        const centerX = (tileWidth * 128) / 2;
+        const centerY = (tileHeight * 128) / 2;
+        const radiusPx = Math.min(tileWidth, tileHeight) * 128 * 0.28;
+        const angle = (slot / totalSlotCount) * Math.PI * 2 - Math.PI / 2;
+        const townPixelX = islandPixelX + centerX + Math.cos(angle) * radiusPx + dirOffset.x;
+        const townPixelY = islandPixelY + centerY + Math.sin(angle) * radiusPx + dirOffset.y;
+        slotLng = pixelToLng(townPixelX);
+        slotLat = pixelToLat(townPixelY);
       }
 
       if (town) {

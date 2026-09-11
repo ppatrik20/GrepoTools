@@ -1,10 +1,10 @@
 /**
  * trace_island_outlines.js
  * 
- * Offline build script that extracts vector polygon outlines from the
- * original Grepolis island PNG sprites. Uses alpha-thresholding,
+ * Offline build script that extracts high-fidelity vector polygon outlines
+ * from original Grepolis island PNG sprites. Uses alpha-thresholding,
  * Moore boundary tracing, morphological erosion for inner contours,
- * and Ramer-Douglas-Peucker simplification.
+ * concentric town-slot alignment, and Ramer-Douglas-Peucker simplification.
  *
  * Output: src/lib/map/island_outlines.json
  *
@@ -15,21 +15,22 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const defs = require('../src/lib/map/island_definitions.json');
+const alignmentMeta = require('../src/lib/map/alignment_metadata.json');
 
 // ─── Configuration ───────────────────────────────────────────────
 
 const ALPHA_THRESHOLD = 30;              // Min alpha to count as land
-const SIMPLIFY_EPSILON = 1.8;            // RDP tolerance in source pixels
-const SMOOTH_WINDOW = 5;                 // Moving average window for pre-smoothing
-const CONTOUR_EPSILON_FACTOR = 1.4;      // Contour simplification is slightly looser
-const MIN_BOUNDARY_POINTS = 8;           // Skip tiny fragments
+const SIMPLIFY_EPSILON = 0.85;           // RDP tolerance in source pixels (crisp bays, capes, promontories)
+const SMOOTH_WINDOW = 3;                 // Moving average window (preserves sharp rocky contours)
+const CONTOUR_EPSILON_FACTOR = 1.1;      // Tight contour simplification for crisp elevation rings
+const MIN_BOUNDARY_POINTS = 6;           // Skip tiny fragments
 
-// Erosion depths for inner contours, scaled per island size category
+// Erosion depths for inner elevation contours, scaled per island category
 const CONTOUR_CONFIG = {
-  large:  { erosion: [6, 14], minDimPx: 200 },   // Types 1-10, 37-46
-  medium: { erosion: [5, 10], minDimPx: 120 },    // Types 13, 16, 47-60
-  small:  { erosion: [3],     minDimPx: 60  },     // Types 11-12, 14-15
-  rock:   { erosion: [],      minDimPx: 0   }      // Rock island
+  large:  { erosion: [4, 8, 14, 22], minDimPx: 120 },   // Types 1-10, 37-46 (up to 4 contours)
+  medium: { erosion: [3, 7, 12],     minDimPx: 70  },   // Types 13, 16, 47-60 (up to 3 contours)
+  small:  { erosion: [2, 5],         minDimPx: 35  },   // Types 11-12, 14-15 (up to 2 contours)
+  rock:   { erosion: [2],            minDimPx: 20  }    // Rock island
 };
 
 
@@ -41,13 +42,13 @@ function removeOceanWater(data) {
     if (a === 0) continue;
 
     // Primary ocean water: deep blue (#1f6496 and variants)
-    const isWater = (b > r + 28 && b >= 78 && g >= 38 && r < 100);
+    const isWater = (b > r + 25 && b >= 75 && g >= 35 && r < 110);
     // Edge water: lighter transition pixels
     const isWaterEdge = (b > r + 15 && b >= 68 && r < 120);
     // Lighter ocean variants (teal/cyan shallow water near shores)
-    const isLightWater = (b > r + 20 && b >= 90 && g >= 60 && g < 180 && r < 140);
+    const isLightWater = (b > r + 20 && b >= 85 && g >= 55 && g < 185 && r < 140);
     // Very light diamond-edge water (isometric tile boundaries)
-    const isDiamondEdge = (b > r + 10 && b >= 100 && g >= 80 && r < 100 && g < 160);
+    const isDiamondEdge = (b > r + 10 && b >= 95 && g >= 75 && r < 105 && g < 165);
 
     if (isWater || isLightWater) {
       data[i + 3] = 0;
@@ -95,7 +96,6 @@ function isolateLargestComponent(mask, width, height) {
       const idx = y * width + x;
       if (mask[idx] !== 1 || visited[idx]) continue;
 
-      // BFS flood-fill for this component
       const queue = [idx];
       visited[idx] = 1;
       let size = 0;
@@ -108,7 +108,6 @@ function isolateLargestComponent(mask, width, height) {
         const cx = ci % width;
         const cy = (ci - cx) / width;
 
-        // 4-connected neighbors
         const neighbors = [
           cy > 0 ? ci - width : -1,
           cy < height - 1 ? ci + width : -1,
@@ -132,7 +131,6 @@ function isolateLargestComponent(mask, width, height) {
     }
   }
 
-  // Build mask with only the largest component
   const result = new Uint8Array(width * height);
   for (let i = 0; i < labelMap.length; i++) {
     if (labelMap[i] === bestLabel) result[i] = 1;
@@ -141,19 +139,14 @@ function isolateLargestComponent(mask, width, height) {
 }
 
 /**
- * Traces the outer boundary of the largest connected component in a
- * binary mask using the Moore-Neighbor tracing algorithm.
- * Returns an ordered array of [x, y] pixel coordinates.
+ * Traces the outer boundary using the Moore-Neighbor tracing algorithm.
  */
 function traceBoundary(inputMask, width, height) {
-  // First, isolate the largest connected component to avoid tracing artifacts
   const mask = isolateLargestComponent(inputMask, width, height);
 
-  // Clockwise 8-connected neighborhood starting from East
   const dx = [1, 1, 0, -1, -1, -1, 0, 1];
   const dy = [0, 1, 1, 1, 0, -1, -1, -1];
 
-  // Find the topmost-leftmost land pixel in the cleaned mask
   let startX = -1, startY = -1;
   for (let y = 0; y < height && startX === -1; y++) {
     for (let x = 0; x < width; x++) {
@@ -168,15 +161,13 @@ function traceBoundary(inputMask, width, height) {
 
   const boundary = [];
   let cx = startX, cy = startY;
-  // We entered from the west (pixel to left is guaranteed water for topmost-leftmost)
-  let backDir = 4; // Direction 4 = West
+  let backDir = 4;
   const maxIter = width * height * 2;
   let iterations = 0;
 
   do {
     boundary.push([cx, cy]);
 
-    // Scan neighbors clockwise starting from (backDir + 1) % 8
     let found = false;
     for (let i = 0; i < 8; i++) {
       const d = (backDir + 1 + i) % 8;
@@ -184,7 +175,7 @@ function traceBoundary(inputMask, width, height) {
       const ny = cy + dy[d];
 
       if (nx >= 0 && nx < width && ny >= 0 && ny < height && mask[ny * width + nx] === 1) {
-        backDir = (d + 4) % 8; // Opposite direction becomes new backtrack
+        backDir = (d + 4) % 8;
         cx = nx;
         cy = ny;
         found = true;
@@ -202,10 +193,6 @@ function traceBoundary(inputMask, width, height) {
 
 // ─── Morphological Erosion ───────────────────────────────────────
 
-/**
- * Erodes a binary mask by `radius` pixels using iterative 4-connected
- * peeling. Returns a new mask.
- */
 function erodeMask(mask, width, height, radius) {
   let current = new Uint8Array(mask);
 
@@ -215,7 +202,6 @@ function erodeMask(mask, width, height, radius) {
       for (let x = 1; x < width - 1; x++) {
         const idx = y * width + x;
         if (current[idx] !== 1) continue;
-        // Keep only if all 4-neighbors are land
         if (current[idx - 1] === 1 &&
             current[idx + 1] === 1 &&
             current[idx - width] === 1 &&
@@ -233,10 +219,6 @@ function erodeMask(mask, width, height, radius) {
 
 // ─── Coordinate Smoothing ────────────────────────────────────────
 
-/**
- * Applies a circular moving-average filter to smooth staircase
- * artifacts from pixel-grid tracing.
- */
 function smoothPoints(points, windowSize) {
   if (points.length < windowSize) return points;
   const half = Math.floor(windowSize / 2);
@@ -258,30 +240,14 @@ function smoothPoints(points, windowSize) {
 }
 
 
-// ─── Ramer-Douglas-Peucker Simplification ────────────────────────
+// ─── Polygon Simplification (Ramer-Douglas-Peucker) ──────────────
 
-function perpendicularDist(point, lineStart, lineEnd) {
-  const [px, py] = point;
-  const [sx, sy] = lineStart;
-  const [ex, ey] = lineEnd;
-
-  const dx = ex - sx;
-  const dy = ey - sy;
-  const lenSq = dx * dx + dy * dy;
-
-  if (lenSq === 0) {
-    const ddx = px - sx;
-    const ddy = py - sy;
-    return Math.sqrt(ddx * ddx + ddy * ddy);
-  }
-
-  const t = Math.max(0, Math.min(1, ((px - sx) * dx + (py - sy) * dy) / lenSq));
-  const projX = sx + t * dx;
-  const projY = sy + t * dy;
-
-  const distX = px - projX;
-  const distY = py - projY;
-  return Math.sqrt(distX * distX + distY * distY);
+function perpendicularDistance(p, p1, p2) {
+  const dx = p2[0] - p1[0];
+  const dy = p2[1] - p1[1];
+  const mag = Math.hypot(dx, dy);
+  if (mag === 0) return Math.hypot(p[0] - p1[0], p[1] - p1[1]);
+  return Math.abs(dy * p[0] - dx * p[1] + p2[0] * p1[1] - p2[1] * p1[0]) / mag;
 }
 
 function rdpSimplify(points, epsilon) {
@@ -289,11 +255,12 @@ function rdpSimplify(points, epsilon) {
 
   let maxDist = 0;
   let maxIdx = 0;
+  const end = points.length - 1;
 
-  for (let i = 1; i < points.length - 1; i++) {
-    const d = perpendicularDist(points[i], points[0], points[points.length - 1]);
-    if (d > maxDist) {
-      maxDist = d;
+  for (let i = 1; i < end; i++) {
+    const dist = perpendicularDistance(points[i], points[0], points[end]);
+    if (dist > maxDist) {
+      maxDist = dist;
       maxIdx = i;
     }
   }
@@ -304,51 +271,32 @@ function rdpSimplify(points, epsilon) {
     return left.slice(0, -1).concat(right);
   }
 
-  return [points[0], points[points.length - 1]];
+  return [points[0], points[end]];
 }
 
-/**
- * Simplifies a closed polygon using RDP.
- * Handles the circular nature by unrolling at the point farthest
- * from its predecessor.
- */
 function simplifyClosedPolygon(points, epsilon) {
-  if (points.length < MIN_BOUNDARY_POINTS) return points;
+  if (points.length <= 4) return points;
 
-  // Find the point farthest from its neighbors to use as split point
-  let maxDist = 0;
-  let splitIdx = 0;
-  for (let i = 0; i < points.length; i++) {
-    const prev = points[(i - 1 + points.length) % points.length];
-    const next = points[(i + 1) % points.length];
-    const d = perpendicularDist(points[i], prev, next);
-    if (d > maxDist) {
-      maxDist = d;
+  let bestD = 0;
+  let splitIdx = Math.floor(points.length / 2);
+
+  for (let i = 1; i < points.length; i++) {
+    const d = Math.hypot(points[i][0] - points[0][0], points[i][1] - points[0][1]);
+    if (d > bestD) {
+      bestD = d;
       splitIdx = i;
     }
   }
 
-  // Rotate so split point is at start and end
-  const rotated = [...points.slice(splitIdx), ...points.slice(0, splitIdx), points[splitIdx]];
-  const simplified = rdpSimplify(rotated, epsilon);
+  const half1 = points.slice(0, splitIdx + 1);
+  const half2 = points.slice(splitIdx).concat([points[0]]);
 
-  // Remove the duplicate closing point
-  if (simplified.length > 1 &&
-      simplified[0][0] === simplified[simplified.length - 1][0] &&
-      simplified[0][1] === simplified[simplified.length - 1][1]) {
-    simplified.pop();
-  }
+  const simp1 = rdpSimplify(half1, epsilon);
+  const simp2 = rdpSimplify(half2, epsilon);
 
-  return simplified;
+  return simp1.slice(0, -1).concat(simp2.slice(0, -1));
 }
 
-
-// ─── Sub-sampling for very dense boundaries ──────────────────────
-
-/**
- * If the boundary has too many points (>800), uniformly subsample
- * before smoothing/simplification to keep processing fast.
- */
 function subsample(points, maxPoints) {
   if (points.length <= maxPoints) return points;
   const step = points.length / maxPoints;
@@ -360,14 +308,9 @@ function subsample(points, maxPoints) {
 }
 
 
-// ─── Rock Island Outline Generator ───────────────────────────────
+// ─── Procedural Rock Island Generator ────────────────────────────
 
-/**
- * Generates a small procedural irregular polygon for decorative
- * rock islands. Uses the type number as a seed for consistency.
- */
 function generateRockOutline(type) {
-  // Simple seeded pseudo-random
   function seededRand(seed) {
     let s = seed;
     return () => {
@@ -377,46 +320,46 @@ function generateRockOutline(type) {
   }
 
   const rand = seededRand(type * 7919 + 31);
-  const numPoints = 8 + Math.floor(rand() * 4); // 8-11 vertices
-  const points = [];
+  const numPoints = 14 + Math.floor(rand() * 5); // 14-18 vertices for craggy angular detail
+  const exterior = [];
+  const contour = [];
 
   for (let i = 0; i < numPoints; i++) {
     const angle = (i / numPoints) * 2 * Math.PI;
-    const radius = 0.25 + 0.10 * rand(); // Slight irregularity
-    points.push([
+    const noise = 0.08 * Math.sin(angle * 3) + 0.04 * Math.cos(angle * 5);
+    const radius = 0.32 + 0.12 * rand() + noise;
+    exterior.push([
       roundCoord(0.5 + radius * Math.cos(angle)),
       roundCoord(0.5 + radius * Math.sin(angle))
     ]);
   }
 
-  return points;
+  // Inner elevation contour (ridge line)
+  const contourPoints = 8;
+  for (let i = 0; i < contourPoints; i++) {
+    const angle = (i / contourPoints) * 2 * Math.PI;
+    const radius = 0.15 + 0.05 * rand();
+    contour.push([
+      roundCoord(0.5 + radius * Math.cos(angle)),
+      roundCoord(0.5 + radius * Math.sin(angle))
+    ]);
+  }
+
+  return { exterior, contours: [contour] };
 }
 
 
 // ─── Island Size Classification ──────────────────────────────────
 
 function getIslandSizeCategory(type) {
-  // Large: 20-slot islands
   if ((type >= 1 && type <= 10) || (type >= 37 && type <= 46)) return 'large';
-  // Medium: 9-13 slot islands
   if (type === 13 || type === 16 || (type >= 47 && type <= 60)) return 'medium';
-  // Small: 7-8 slot islands
   if (type >= 11 && type <= 15) return 'small';
   return 'rock';
 }
 
-
-// ─── Coordinate Helpers ──────────────────────────────────────────
-
 function roundCoord(val) {
   return Math.round(val * 10000) / 10000;
-}
-
-function normalizeAndRound(points, width, height) {
-  return points.map(([x, y]) => [
-    roundCoord(x / width),
-    roundCoord(y / height)
-  ]);
 }
 
 
@@ -433,9 +376,10 @@ async function traceAllIslands() {
 
   console.log('╔══════════════════════════════════════════════════╗');
   console.log('║     Island Vector Outline Extraction Pipeline    ║');
+  console.log('║     High-Fidelity & Concentric Shoreline Alignment║');
   console.log('╚══════════════════════════════════════════════════╝\n');
 
-  // ── Process colonizable islands (types 1-16, 37-60) ──
+  // ── Process islands (types 1-60) ──
 
   for (let type = 1; type <= 60; type++) {
     const def = defs[type];
@@ -443,14 +387,16 @@ async function traceAllIslands() {
 
     const isColonizable = (type >= 1 && type <= 16) || (type >= 37 && type <= 60);
 
-    // Types 17-36 are decorative rocks - generate procedurally
+    // Types 17-36 are decorative rocks - generate procedural craggy polygons with contours
     if (!isColonizable) {
+      const rockData = generateRockOutline(type);
       outlines[type] = {
-        exterior: generateRockOutline(type),
-        contours: [],
+        exterior: rockData.exterior,
+        contours: rockData.contours,
         width: 1,
         height: 1
       };
+      processedCount++;
       continue;
     }
 
@@ -467,13 +413,9 @@ async function traceAllIslands() {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // Remove cyan ocean water
     removeOceanWater(data);
-
-    // Create binary mask
     const mask = createBinaryMask(data, info.width, info.height);
 
-    // Count land pixels to verify mask quality
     let landPixels = 0;
     for (let i = 0; i < mask.length; i++) if (mask[i]) landPixels++;
     const landPercent = ((landPixels / mask.length) * 100).toFixed(1);
@@ -487,39 +429,30 @@ async function traceAllIslands() {
       continue;
     }
 
-    // Subsample if very dense
-    boundary = subsample(boundary, 600);
-
-    // Smooth to reduce staircase artifacts
+    // Subsample with higher density limit
+    boundary = subsample(boundary, 800);
     boundary = smoothPoints(boundary, SMOOTH_WINDOW);
-
-    // Simplify with RDP
     const simplified = simplifyClosedPolygon(boundary, SIMPLIFY_EPSILON);
 
-    // Normalize to [0, 1]
-    const exterior = normalizeAndRound(simplified, info.width, info.height);
-
-    // ── Inner contours via erosion ──
+    // ── Inner elevation contours via multi-tier erosion ──
     const category = getIslandSizeCategory(type);
     const config = CONTOUR_CONFIG[category];
-    const contours = [];
+    const rawContours = [];
 
     for (const depth of config.erosion) {
-      // Skip if image is too small for this erosion depth
       const minDim = Math.min(info.width, info.height);
-      if (depth * 2 >= minDim * 0.6) continue;
+      if (depth * 2 >= minDim * 0.7) continue;
 
       const erodedMask = erodeMask(mask, info.width, info.height, depth);
 
-      // Verify eroded mask has enough land
       let erodedLand = 0;
       for (let i = 0; i < erodedMask.length; i++) if (erodedMask[i]) erodedLand++;
-      if (erodedLand < 20) continue;
+      if (erodedLand < 15) continue;
 
       let contourBoundary = traceBoundary(erodedMask, info.width, info.height);
       if (contourBoundary.length < MIN_BOUNDARY_POINTS) continue;
 
-      contourBoundary = subsample(contourBoundary, 400);
+      contourBoundary = subsample(contourBoundary, 600);
       contourBoundary = smoothPoints(contourBoundary, SMOOTH_WINDOW);
 
       const contourSimplified = simplifyClosedPolygon(
@@ -528,24 +461,103 @@ async function traceAllIslands() {
       );
 
       if (contourSimplified.length >= MIN_BOUNDARY_POINTS) {
-        contours.push(normalizeAndRound(contourSimplified, info.width, info.height));
+        rawContours.push(contourSimplified);
       }
     }
 
-    let width = def.width;
-    let height = def.height;
-    if (def.town_offsets && def.town_offsets.length > 0) {
-      const maxX = Math.max(...def.town_offsets.map(t => t.x));
-      const maxY = Math.max(...def.town_offsets.map(t => t.y));
-      if (maxX > width * 128) width = Math.ceil((maxX + 20) / 128);
-      if (maxY > height * 128) height = Math.ceil((maxY + 20) / 128);
+    // ── Concentric Town Alignment & Scaling ──
+    // Find land bounds in raw PNG
+    let minPxX = info.width, maxPxX = 0, minPxY = info.height, maxPxY = 0;
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++) {
+        if (mask[y * info.width + x]) {
+          if (x < minPxX) minPxX = x;
+          if (x > maxPxX) maxPxX = x;
+          if (y < minPxY) minPxY = y;
+          if (y > maxPxY) maxPxY = y;
+        }
+      }
     }
+
+    const rawW = Math.max(1, maxPxX - minPxX + 1);
+    const rawH = Math.max(1, maxPxY - minPxY + 1);
+    const rawCenterX = (minPxX + maxPxX) / 2;
+    const rawCenterY = (minPxY + maxPxY) / 2;
+
+    const townOffsets = def.town_offsets || [];
+    let townCenterX = (def.width * 128) / 2;
+    let townCenterY = (def.height * 128) / 2;
+    let scale = 5.0;
+
+    if (townOffsets.length > 0) {
+      const townMinX = Math.min(...townOffsets.map(t => t.x));
+      const townMaxX = Math.max(...townOffsets.map(t => t.x));
+      const townMinY = Math.min(...townOffsets.map(t => t.y));
+      const townMaxY = Math.max(...townOffsets.map(t => t.y));
+      const townW = townMaxX - townMinX;
+      const townH = townMaxY - townMinY;
+      const meta = alignmentMeta[type];
+      townCenterX = meta ? meta.townCenterX : (townMinX + townMaxX) / 2;
+      townCenterY = meta ? meta.townCenterY : (townMinY + townMaxY) / 2;
+
+      // Scale to fit town perimeter neatly along shoreline with a 24-32px margin
+      const scaleX = Math.max((townW + 32) / rawW, 1.0);
+      const scaleY = Math.max((townH + 32) / rawH, 1.0);
+      scale = Math.max(scaleX, scaleY);
+    }
+
+    // Transform points to world tile pixel space centered on townCenter
+    const transformPt = ([px, py]) => [
+      townCenterX + (px - rawCenterX) * scale,
+      townCenterY + (py - rawCenterY) * scale
+    ];
+
+    let worldBoundary = simplified.map(transformPt);
+    let worldContours = rawContours.map(c => c.map(transformPt));
+
+    // Guard against negative coordinates (shift all if needed)
+    const minWx = Math.min(...worldBoundary.map(p => p[0]));
+    const minWy = Math.min(...worldBoundary.map(p => p[1]));
+    let shiftX = 0, shiftY = 0;
+    if (minWx < 10) shiftX = 10 - minWx;
+    if (minWy < 10) shiftY = 10 - minWy;
+
+    if (shiftX > 0 || shiftY > 0) {
+      worldBoundary = worldBoundary.map(([x, y]) => [x + shiftX, y + shiftY]);
+      worldContours = worldContours.map(c => c.map(([x, y]) => [x + shiftX, y + shiftY]));
+    }
+
+    // Determine final tile bounding box in 128px units
+    const allWorldX = [
+      ...worldBoundary.map(p => p[0]),
+      ...townOffsets.map(t => t.x + 20)
+    ];
+    const allWorldY = [
+      ...worldBoundary.map(p => p[1]),
+      ...townOffsets.map(t => t.y + 20)
+    ];
+
+    const maxWx = Math.max(...allWorldX);
+    const maxWy = Math.max(...allWorldY);
+    const tileW = Math.max(def.width, Math.ceil((maxWx + 15) / 128));
+    const tileH = Math.max(def.height, Math.ceil((maxWy + 15) / 128));
+
+    // Normalize to [0, 1] relative to tileW * 128 and tileH * 128
+    const exterior = worldBoundary.map(([wx, wy]) => [
+      roundCoord(wx / (tileW * 128)),
+      roundCoord(wy / (tileH * 128))
+    ]);
+
+    const contours = worldContours.map(c => c.map(([wx, wy]) => [
+      roundCoord(wx / (tileW * 128)),
+      roundCoord(wy / (tileH * 128))
+    ]));
 
     outlines[type] = {
       exterior,
       contours,
-      width,
-      height
+      width: tileW,
+      height: tileH
     };
 
     const stat = {
@@ -561,14 +573,14 @@ async function traceAllIslands() {
     stats.push(stat);
     processedCount++;
 
-    process.stdout.write(`  ✓ Type ${String(type).padStart(2)} [${category.padEnd(6)}] | ${info.width}×${info.height} → ${exterior.length} pts`);
+    process.stdout.write(`  ✓ Type ${String(type).padStart(2)} [${category.padEnd(6)}] | ${exterior.length} pts`);
     if (contours.length > 0) {
-      process.stdout.write(` + ${contours.length} contour(s)`);
+      process.stdout.write(` + ${contours.length} contour(s) [${contours.map(c => c.length).join('+')}]`);
     }
     process.stdout.write('\n');
   }
 
-  // ── Process rock island outline ──
+  // ── Process rock island outline (999) ──
 
   if (fs.existsSync(rockSrc)) {
     const { data, info } = await sharp(rockSrc)
@@ -576,22 +588,39 @@ async function traceAllIslands() {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
+    removeOceanWater(data);
     const mask = createBinaryMask(data, info.width, info.height);
     let boundary = traceBoundary(mask, info.width, info.height);
 
     if (boundary.length >= MIN_BOUNDARY_POINTS) {
-      boundary = subsample(boundary, 300);
+      boundary = subsample(boundary, 400);
       boundary = smoothPoints(boundary, SMOOTH_WINDOW);
-      const simplified = simplifyClosedPolygon(boundary, SIMPLIFY_EPSILON * 2);
-      const exterior = normalizeAndRound(simplified, info.width, info.height);
+      const simplified = simplifyClosedPolygon(boundary, SIMPLIFY_EPSILON);
+      const exterior = simplified.map(([x, y]) => [
+        roundCoord(x / info.width),
+        roundCoord(y / info.height)
+      ]);
+
+      // Add 1 inner contour for rock island
+      const erodedMask = erodeMask(mask, info.width, info.height, 4);
+      let contourBoundary = traceBoundary(erodedMask, info.width, info.height);
+      const contours = [];
+      if (contourBoundary.length >= MIN_BOUNDARY_POINTS) {
+        contourBoundary = smoothPoints(contourBoundary, SMOOTH_WINDOW);
+        const simpContour = simplifyClosedPolygon(contourBoundary, SIMPLIFY_EPSILON * 1.2);
+        contours.push(simpContour.map(([x, y]) => [
+          roundCoord(x / info.width),
+          roundCoord(y / info.height)
+        ]));
+      }
 
       outlines['999'] = {
         exterior,
-        contours: [],
+        contours,
         width: 4,
         height: 3
       };
-      console.log(`  ✓ Rock island → ${exterior.length} pts`);
+      console.log(`  ✓ Rock island (999) → ${exterior.length} pts + ${contours.length} contour(s)`);
     }
   }
 

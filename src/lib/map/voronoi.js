@@ -151,13 +151,14 @@ export function computeContestedFrontlines(towns = [], voronoiData = { features:
       const aList = Array.from(allianceIds);
       const tension = islandTowns.length > 0 ? Math.min(1.0, (allianceIds.size / islandTowns.length) * 1.5) : 0.5;
 
+      const rad = 0.04;
       features.push({
         type: "Feature",
         geometry: {
           type: "LineString",
           coordinates: [
-            [centerLng - 0.005, centerLat - 0.005],
-            [centerLng + 0.005, centerLat + 0.005]
+            [centerLng - rad, centerLat],
+            [centerLng + rad, centerLat]
           ]
         },
         properties: {
@@ -200,13 +201,20 @@ export function computeContestedFrontlines(towns = [], voronoiData = { features:
       // Adjacent alliance territories within ~40 degrees
       if (dist < 40.0) {
         const tension = Math.min(1.0, 0.5 + Math.max(0, (40.0 - dist) / 80));
+        const dx = cB[0] - cA[0];
+        const dy = cB[1] - cA[1];
+        const len = Math.hypot(dx, dy) || 1;
+        const span = Math.min(dist * 0.35, 1.5);
+        const nx = (-dy / len) * span;
+        const ny = (dx / len) * span;
+
         features.push({
           type: "Feature",
           geometry: {
             type: "LineString",
             coordinates: [
-              [midLng - 0.01, midLat - 0.01],
-              [midLng + 0.01, midLat + 0.01]
+              [midLng - nx, midLat - ny],
+              [midLng + nx, midLat + ny]
             ]
           },
           properties: {

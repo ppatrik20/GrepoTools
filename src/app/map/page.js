@@ -424,15 +424,17 @@ export default function WorldMap() {
   // Rock island vector polygons (small irregular shapes)
   const rockPolygonsData = useMemo(() => {
     if (!partitionedFeatures.rocks.length) return null;
-    const rockOutline = islandOutlines['999'];
-    if (!rockOutline) return null;
 
     const features = partitionedFeatures.rocks
       .map(rock => {
+        const type = rock.properties.islandType || 999;
+        const rockOutline = islandOutlines[type] || islandOutlines['999'];
+        if (!rockOutline || !rockOutline.exterior) return null;
+
         const ix = rock.properties.x;
         const iy = rock.properties.y;
-        const tileW = rockOutline.width || 4;
-        const tileH = rockOutline.height || 3;
+        const tileW = rockOutline.width || 1;
+        const tileH = rockOutline.height || 1;
 
         const islandPixelX = ix * 128;
         const islandPixelY = iy * 128 + ((ix & 1) ? 64 : 0);
@@ -942,10 +944,24 @@ export default function WorldMap() {
               layout={{
                 "text-field": ["get", "label"],
                 "text-font": ["Noto Sans Regular"],
-                "text-size": 22,
+                "text-size": [
+                  "interpolate", ["linear"], ["zoom"],
+                  2.0, 11,
+                  4.0, 14,
+                  6.0, 18,
+                  8.0, 22
+                ],
                 "text-anchor": "center"
               }}
-              paint={{ "text-color": "#334155" }}
+              paint={{
+                "text-color": "#334155",
+                "text-opacity": [
+                  "interpolate", ["linear"], ["zoom"],
+                  2.0, 0.45,
+                  5.0, 0.65,
+                  8.0, 0.85
+                ]
+              }}
             />
           </Source>
 
@@ -1343,25 +1359,25 @@ export default function WorldMap() {
           {/* Islands Layer */}
           {islandsData && (
             <Source id="islands-source" type="geojson" data={islandsData}>
-              {/* Macro Zoom Island Dots (Zoom 2 to 5.5) */}
+              {/* Macro Zoom Island Dots (Zoom 2 to 5.2) */}
               <Layer 
                 id="islands-points"
                 type="circle"
                 minzoom={2}
-                maxzoom={5.5}
+                maxzoom={5.2}
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
                     2, 2.5,
                     4, 5.5,
-                    5.5, 9
+                    5.2, 8
                   ],
                   "circle-color": ["get", "islandColor"],
                   "circle-opacity": [
                     "interpolate", ["linear"], ["zoom"],
                     2.0, 0.45,
-                    4.5, 0.45,
-                    5.5, 0.0
+                    4.8, 0.45,
+                    5.2, 0.0
                   ],
                   "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#0f172a"
@@ -1370,20 +1386,20 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Island Vector Terrain Polygons (Zoom >= 4.5) */}
+          {/* Island Vector Terrain Polygons (Zoom >= 4.8) */}
           {islandPolygonsData && (
             <Source id="island-polygons-source" type="geojson" data={islandPolygonsData}>
               {/* Dark terrain fill - slightly lighter than ocean for contrast */}
               <Layer
                 id="island-terrain-fill"
                 type="fill"
-                minzoom={4.5}
+                minzoom={4.8}
                 paint={{
                   "fill-color": "#0f1729",
                   "fill-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 0,
-                    5.5, 0.9
+                    4.8, 0,
+                    5.3, 0.9
                   ]
                 }}
               />
@@ -1392,13 +1408,13 @@ export default function WorldMap() {
               <Layer
                 id="island-sovereignty-tint"
                 type="fill"
-                minzoom={4.5}
+                minzoom={4.8}
                 paint={{
                   "fill-color": ["get", "islandColor"],
                   "fill-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 0,
-                    5.5, [
+                    4.8, 0,
+                    5.3, [
                       "case",
                       ["!=", ["get", "islandColor"], "#1e293b"],
                       0.12,
@@ -1418,24 +1434,24 @@ export default function WorldMap() {
               <Layer
                 id="island-outline-glow"
                 type="line"
-                minzoom={4.5}
+                minzoom={4.8}
                 paint={{
                   "line-color": "#38bdf8",
                   "line-width": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 2.0,
+                    4.8, 2.0,
                     7.0, 5.0,
                     10.0, 8.0
                   ],
                   "line-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 0,
-                    5.5, 0.12,
+                    4.8, 0,
+                    5.3, 0.12,
                     7.0, 0.18
                   ],
                   "line-blur": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 2.0,
+                    4.8, 2.0,
                     7.0, 4.0,
                     10.0, 6.0
                   ]
@@ -1446,24 +1462,24 @@ export default function WorldMap() {
               <Layer
                 id="island-outline"
                 type="line"
-                minzoom={4.5}
+                minzoom={4.8}
                 paint={{
                   "line-color": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, "#64748b",
+                    4.8, "#64748b",
                     6.0, "#38bdf8"
                   ],
                   "line-width": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 0.4,
+                    4.8, 0.4,
                     6.0, 0.8,
                     8.0, 1.5,
                     10.0, 2.0
                   ],
                   "line-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.5, 0,
-                    5.5, 0.75,
+                    4.8, 0,
+                    5.3, 0.75,
                     7.0, 0.85
                   ]
                 }}
@@ -1471,26 +1487,26 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Island Inner Contour Lines (Zoom >= 6.5) */}
+          {/* Island Inner Contour Lines (Zoom >= 6.0) */}
           {islandContoursData && (
             <Source id="island-contours-source" type="geojson" data={islandContoursData}>
               <Layer
                 id="island-contour-lines"
                 type="line"
-                minzoom={6.5}
+                minzoom={6.0}
                 paint={{
                   "line-color": "#1e3a5f",
                   "line-width": [
                     "interpolate", ["linear"], ["zoom"],
-                    6.5, 0.3,
+                    6.0, 0.3,
                     8.0, 0.6,
                     10.0, 1.0
                   ],
                   "line-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    6.5, 0,
-                    7.5, 0.3,
-                    9.0, 0.45
+                    6.0, 0,
+                    7.0, 0.35,
+                    9.0, 0.5
                   ],
                   "line-dasharray": [4, 4]
                 }}
@@ -1656,17 +1672,21 @@ export default function WorldMap() {
                 id="island-halos-glow"
                 type="circle"
                 minzoom={2.2}
-                maxzoom={7.0}
+                maxzoom={5.2}
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
                     2.2, 3,
                     4.0, 7,
-                    5.5, 12,
-                    7.0, 18
+                    5.2, 11
                   ],
                   "circle-color": ["get", "haloColor"],
-                  "circle-opacity": 0.40,
+                  "circle-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.2, 0.40,
+                    4.8, 0.40,
+                    5.2, 0.0
+                  ],
                   "circle-blur": 1.2
                 }}
               />
@@ -1674,14 +1694,13 @@ export default function WorldMap() {
                 id="island-halos-ring"
                 type="circle"
                 minzoom={2.2}
-                maxzoom={7.0}
+                maxzoom={5.2}
                 paint={{
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
                     2.2, 2.5,
                     4.0, 5.5,
-                    5.5, 9.5,
-                    7.0, 14
+                    5.2, 8.5
                   ],
                   "circle-color": ["get", "haloColor"],
                   "circle-stroke-width": [
@@ -1692,7 +1711,12 @@ export default function WorldMap() {
                     1.0
                   ],
                   "circle-stroke-color": ["get", "strokeColor"],
-                  "circle-opacity": 0.85
+                  "circle-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    2.2, 0.85,
+                    4.8, 0.85,
+                    5.2, 0.0
+                  ]
                 }}
               />
             </Source>
@@ -1768,10 +1792,11 @@ export default function WorldMap() {
                   "text-font": ["Noto Sans Regular"],
                   "text-size": [
                     "interpolate", ["linear"], ["zoom"],
-                    2.2, 10,
-                    3.8, 12,
-                    5.5, 14
+                    2.2, 9,
+                    3.8, 11,
+                    5.5, 13
                   ],
+                  "text-max-width": 12,
                   "text-anchor": "center",
                   "text-allow-overlap": false
                 }}
@@ -1787,11 +1812,11 @@ export default function WorldMap() {
           {/* Towns Layer */}
           {townsData && (
             <Source id="towns-source" type="geojson" data={townsData}>
-              {/* Unclustered Points sized by Town Stage (Zoom 3.5 to 6.8) */}
+              {/* Unclustered Points sized by Town Stage (Zoom 5.5 to 6.8) */}
               <Layer 
                 id="town-points"
                 type="circle"
-                minzoom={3.5}
+                minzoom={5.5}
                 maxzoom={6.8}
                 paint={{
                   "circle-color": [

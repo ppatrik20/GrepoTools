@@ -146,7 +146,7 @@ export function filterIntelOverlays(towns = [], players = [], conquests = [], fi
     safeConquests.forEach(c => {
       if (!c) return;
       const cTime = typeof c.time === 'string' ? new Date(c.time).getTime() : Number(c.time || 0);
-      if (now - cTime <= windowMs) {
+      if (now - cTime <= windowMs + 1000) {
         const tId = c.townId ?? c.town_id ?? c.id;
         if (tId !== undefined && tId !== null) {
           townConquestCounts.set(tId, (townConquestCounts.get(tId) || 0) + 1);
