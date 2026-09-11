@@ -128,13 +128,28 @@ function createOrganicTerritoryRing(hull, bufferDeg = 0.75, numSubdivisions = 6)
  * @param {Object} customColors - User-customized hex colors
  * @returns {Object} GeoJSON FeatureCollection of polygons and label markers
  */
-export function computeAllianceDominions(towns = [], topAlliances = [], customColors = {}) {
+export function computeAllianceDominions(towns = [], topAlliances = [], customColors = {}, options = {}) {
   if (!Array.isArray(towns) || towns.length === 0) {
     return { 
       polygons: { type: 'FeatureCollection', features: [] },
       labels: { type: 'FeatureCollection', features: [] }
     };
   }
+
+  const coalitions = Array.isArray(options) ? options : (options?.coalitions || []);
+  const coalitionLookup = new Map();
+  coalitions.forEach(c => {
+    if (!c || !c.name) return;
+    const members = Array.isArray(c.alliances) ? c.alliances : [];
+    members.forEach(m => {
+      const name = typeof m === 'string' ? m : m?.name;
+      if (name) coalitionLookup.set(name.trim().toLowerCase(), c);
+      if (m?.id !== undefined) coalitionLookup.set(String(m.id), c);
+    });
+    if (Array.isArray(c.allianceIds)) {
+      c.allianceIds.forEach(id => coalitionLookup.set(String(id), c));
+    }
+  });
 
   const allianceMap = new Map();
   (topAlliances || []).forEach(a => {
@@ -143,16 +158,28 @@ export function computeAllianceDominions(towns = [], topAlliances = [], customCo
     }
   });
 
-  // Group towns by alliance
+  // Group towns by alliance or coalition
   const allianceGroups = new Map();
 
   towns.forEach(t => {
     const raw = t.properties || t;
     const aName = typeof raw.alliance === 'string' ? raw.alliance : raw.alliance?.name;
+    const aId = raw.allianceId ?? raw.alliance?.id;
     if (!aName || aName === 'None' || aName === 'Ghost Town') return;
     
-    const color = allianceMap.get(aName);
-    if (!color) return; // Focus on top alliances
+    const normName = aName.trim().toLowerCase();
+    const coalition = coalitionLookup.get(normName) || (aId !== undefined && aId !== null ? coalitionLookup.get(String(aId)) : null);
+
+    let groupName, groupColor;
+    if (coalition) {
+      groupName = coalition.name;
+      groupColor = coalition.color || '#10b981';
+    } else {
+      const color = allianceMap.get(aName);
+      if (!color) return; // Focus on top alliances
+      groupName = aName;
+      groupColor = color;
+    }
 
     let lng, lat;
     if (t.geometry && t.geometry.coordinates) {
@@ -164,14 +191,14 @@ export function computeAllianceDominions(towns = [], topAlliances = [], customCo
       lat = -((y / 1000) * 180 - 90);
     }
 
-    if (!allianceGroups.has(aName)) {
-      allianceGroups.set(aName, {
-        name: aName,
-        color: color,
+    if (!allianceGroups.has(groupName)) {
+      allianceGroups.set(groupName, {
+        name: groupName,
+        color: groupColor,
         points: []
       });
     }
-    allianceGroups.get(aName).points.push([lng, lat]);
+    allianceGroups.get(groupName).points.push([lng, lat]);
   });
 
   const polygonFeatures = [];

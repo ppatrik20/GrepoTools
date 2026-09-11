@@ -22,7 +22,7 @@ import AllianceCoalitionModal from "@/components/map/AllianceCoalitionModal";
 
 import { computeAllianceVoronoi, computeContestedFrontlines } from "@/lib/map/voronoi";
 import { computeAllianceDominions } from "@/lib/map/dominions";
-import { classifyIslands, ISLAND_STATUS } from "@/lib/map/islandControl";
+import { classifyIslands, buildCoalitionLookup, ISLAND_STATUS } from "@/lib/map/islandControl";
 import { computeMaritimeBoundaries } from "@/lib/map/maritimeBoundaries";
 import { filterIntelOverlays } from "@/lib/map/intelRadar";
 import { calculateArcTrajectory } from "@/lib/map/trajectories";
@@ -189,6 +189,7 @@ export default function WorldMap() {
 
   // Alliance Coalitions & Families
   const [coalitions, setCoalitions] = useState([]);
+  const [allWorldAlliances, setAllWorldAlliances] = useState([]);
   const [isCoalitionModalOpen, setIsCoalitionModalOpen] = useState(false);
 
   // Viewport tracking for Minimap Radar (Milestone 5)
@@ -268,19 +269,35 @@ export default function WorldMap() {
           if (cached) setCoalitions(JSON.parse(cached));
         } catch (e) {}
       });
+
+    // Fetch all alliances in current world for searching in modal
+    fetch(`/api/world/alliances?world=${activeWorldId}`)
+      .then(res => res.json())
+      .then(result => {
+        if (result.success && Array.isArray(result.alliances)) {
+          setAllWorldAlliances(result.alliances);
+        }
+      })
+      .catch(e => console.error("Failed to load all alliances:", e));
   }, [activeWorldId]);
 
   const handleSaveCoalitions = async (newCoalitions) => {
     setCoalitions(newCoalitions);
     try {
       localStorage.setItem(`grepotools_coalitions_${activeWorldId}`, JSON.stringify(newCoalitions));
-      await fetch('/api/world/coalitions', {
+      const res = await fetch('/api/world/coalitions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ worldId: activeWorldId, coalitions: newCoalitions })
       });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.coalitions)) {
+        setCoalitions(data.coalitions);
+      }
     } catch (e) {
       console.error("Failed to save coalitions:", e);
+      throw e;
     }
   };
 
@@ -306,23 +323,44 @@ export default function WorldMap() {
   // Raw towns list (for Voronoi, Intel Radar, and Pins)
   const rawTowns = partitionedFeatures.towns;
 
+  // Coalition lookup for fast mapping across map layers
+  const coalitionLookup = useMemo(() => {
+    return buildCoalitionLookup(coalitions);
+  }, [coalitions]);
+
   // Islands feature collection
   const islandsData = useMemo(() => {
     if (!partitionedFeatures.islands.length) return null;
     let features = partitionedFeatures.islands;
     
-    if (Object.keys(customColors).length > 0) {
-      features = features.map(f => {
-        const ally = f.properties.dominantAlliance;
-        if (ally && ally !== "None" && customColors[ally]) {
-          return {
-            ...f,
-            properties: { ...f.properties, islandColor: customColors[ally] }
-          };
+    features = features.map(f => {
+      const ally = f.properties.dominantAlliance;
+      let islandColor = f.properties.islandColor;
+      let dominantAlliance = ally;
+
+      if (ally && ally !== "None") {
+        const normName = ally.trim().toLowerCase();
+        const coalition = coalitionLookup.get(normName);
+        if (coalition) {
+          dominantAlliance = coalition.name;
+          islandColor = coalition.color || '#10b981';
         }
-        return f;
-      });
-    }
+        if (customColors[dominantAlliance]) {
+          islandColor = customColors[dominantAlliance];
+        } else if (customColors[ally]) {
+          islandColor = customColors[ally];
+        }
+      }
+
+      return {
+        ...f,
+        properties: {
+          ...f.properties,
+          islandColor,
+          dominantAlliance
+        }
+      };
+    });
 
     features.sort((a, b) => {
       const aEmpty = a.properties.islandColor === "#1e293b";
@@ -332,23 +370,35 @@ export default function WorldMap() {
       return 0;
     });
      return { type: 'FeatureCollection', features };
-  }, [partitionedFeatures.islands, customColors]);
+  }, [partitionedFeatures.islands, customColors, coalitionLookup]);
 
   // Island Vector Polygon FeatureCollections (generated from Point features + outline data)
   const islandPolygonsData = useMemo(() => {
     if (!partitionedFeatures.islands.length) return null;
     let features = partitionedFeatures.islands;
 
-    // Apply custom alliance colors if present
-    if (Object.keys(customColors).length > 0) {
-      features = features.map(f => {
-        const ally = f.properties.dominantAlliance;
-        if (ally && ally !== "None" && customColors[ally]) {
-          return { ...f, properties: { ...f.properties, islandColor: customColors[ally] } };
+    // Apply custom alliance colors and coalition colors
+    features = features.map(f => {
+      const ally = f.properties.dominantAlliance;
+      let islandColor = f.properties.islandColor;
+      let dominantAlliance = ally;
+
+      if (ally && ally !== "None") {
+        const normName = ally.trim().toLowerCase();
+        const coalition = coalitionLookup.get(normName);
+        if (coalition) {
+          dominantAlliance = coalition.name;
+          islandColor = coalition.color || '#10b981';
         }
-        return f;
-      });
-    }
+        if (customColors[dominantAlliance]) {
+          islandColor = customColors[dominantAlliance];
+        } else if (customColors[ally]) {
+          islandColor = customColors[ally];
+        }
+      }
+
+      return { ...f, properties: { ...f.properties, islandColor, dominantAlliance } };
+    });
 
     const polygonFeatures = features
       .map(island => {
@@ -380,7 +430,7 @@ export default function WorldMap() {
 
     if (polygonFeatures.length === 0) return null;
     return { type: 'FeatureCollection', features: polygonFeatures };
-  }, [partitionedFeatures.islands, customColors]);
+  }, [partitionedFeatures.islands, customColors, coalitionLookup]);
 
   // Island inner contour LineStrings for terrain detail at high zoom
   const islandContoursData = useMemo(() => {
@@ -514,16 +564,17 @@ export default function WorldMap() {
     if (!rawTowns.length || !topAlliances.length) return null;
     return computeAllianceVoronoi(rawTowns, topAlliances, {
       customColors,
+      coalitions,
       maxRadius: 25.0,
       minTownCount: 2
     });
-  }, [rawTowns, topAlliances, customColors]);
+  }, [rawTowns, topAlliances, customColors, coalitions]);
 
   // Contested Frontlines GeoJSON (Milestone 1)
   const frontlinesData = useMemo(() => {
     if (!rawTowns.length || !voronoiData) return null;
-    return computeContestedFrontlines(rawTowns, voronoiData);
-  }, [rawTowns, voronoiData]);
+    return computeContestedFrontlines(rawTowns, voronoiData, { coalitions });
+  }, [rawTowns, voronoiData, coalitions]);
 
   // Island Sovereignty & Cleanliness Classification
   const islandClassification = useMemo(() => {
@@ -559,8 +610,8 @@ export default function WorldMap() {
         labels: { type: 'FeatureCollection', features: [] }
       };
     }
-    return computeAllianceDominions(rawTowns, topAlliances, customColors);
-  }, [rawTowns, topAlliances, customColors]);
+    return computeAllianceDominions(rawTowns, topAlliances, customColors, { coalitions });
+  }, [rawTowns, topAlliances, customColors, coalitions]);
 
   // Alliance Territory Stats for Legend Breakdown (Milestone 1)
   const allianceTerritoryStats = useMemo(() => {
@@ -2170,7 +2221,8 @@ export default function WorldMap() {
           onClose={() => setIsCoalitionModalOpen(false)}
           coalitions={coalitions}
           onSaveCoalitions={handleSaveCoalitions}
-          alliances={topAlliances}
+          alliances={allWorldAlliances.length > 0 ? allWorldAlliances : topAlliances}
+          worldId={activeWorldId}
         />
       )}
 
@@ -2228,17 +2280,89 @@ export default function WorldMap() {
 
         {!isSidebarCollapsed && (
           <>
+            {/* Alliance Families & Coalitions Panel */}
+            {coalitions.length > 0 && (
+              <div className="flex flex-col gap-1.5 mt-1 pb-2.5 border-b border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shield size={13} /> Coalitions ({coalitions.length})
+                  </h2>
+                  <button
+                    onClick={() => setIsCoalitionModalOpen(true)}
+                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors cursor-pointer"
+                    title="Manage alliance families and sister branches"
+                  >
+                    Manage
+                  </button>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {coalitions.map((c) => {
+                    const memberNames = Array.isArray(c.alliances) 
+                      ? c.alliances.map(m => (typeof m === 'string' ? m : m?.name)).filter(Boolean)
+                      : [];
+                    const isAllHighlighted = memberNames.length > 0 && memberNames.every(m => highlightedAlliances[m]);
+
+                    return (
+                      <div key={c.id || c.name} className="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg hover:bg-slate-800/60 transition-colors">
+                        <div className="flex gap-2 items-center flex-1 min-w-0">
+                          <button
+                            onClick={() => {
+                              setHighlightedAlliances(prev => {
+                                const copy = { ...prev };
+                                if (isAllHighlighted) {
+                                  memberNames.forEach(m => delete copy[m]);
+                                } else {
+                                  memberNames.forEach(m => { copy[m] = c.color; });
+                                }
+                                return copy;
+                              });
+                            }}
+                            className="cursor-pointer shrink-0"
+                            title={isAllHighlighted ? "Clear coalition highlight" : "Highlight coalition member towns on map"}
+                          >
+                            <div 
+                              style={{ 
+                                width: '11px', 
+                                height: '11px', 
+                                borderRadius: '50%', 
+                                backgroundColor: c.color,
+                                boxShadow: isAllHighlighted ? `0 0 8px ${c.color}` : 'none'
+                              }}
+                              className={`transition-all ${isAllHighlighted ? 'ring-2 ring-white scale-110' : ''}`}
+                            />
+                          </button>
+                          <div 
+                            className="flex-1 min-w-0 cursor-pointer"
+                            onClick={() => setIsCoalitionModalOpen(true)}
+                          >
+                            <div className="font-bold text-white truncate text-xs hover:text-emerald-300 transition-colors">
+                              {c.name}
+                            </div>
+                            <div className="text-[10px] text-slate-400 truncate">
+                              {memberNames.length} {memberNames.length === 1 ? 'ally' : 'allies'}: {memberNames.join(', ')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Top 10 Alliances Legend & Coalition Families */}
             <div className="flex flex-col gap-1.5 mt-1">
               <div className="flex items-center justify-between">
                 <h2 className="text-xs font-bold text-primary uppercase tracking-wider">Top 10 Alliances</h2>
-                <button
-                  onClick={() => setIsCoalitionModalOpen(true)}
-                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors cursor-pointer"
-                  title="Group main and sister/academy alliances into families"
-                >
-                  Families ({coalitions.length})
-                </button>
+                {coalitions.length === 0 && (
+                  <button
+                    onClick={() => setIsCoalitionModalOpen(true)}
+                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors cursor-pointer"
+                    title="Group main and sister/academy alliances into families"
+                  >
+                    + Coalition
+                  </button>
+                )}
               </div>
               <div className="flex flex-col gap-1">
                 {topAlliances.length > 0 ? topAlliances.slice(0, 10).map((a) => {

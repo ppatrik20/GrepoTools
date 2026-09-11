@@ -30,6 +30,7 @@ model World {
   townHistories   TownHistory[]
   snipeOperations SnipeOperation[]
   reports         Report[]
+  coalitions      Coalition[]
 
   @@index([isActive])
 }
@@ -344,3 +345,20 @@ model GodPower {
   targets       Json
   meta_defaults Json?
 }
+
+model Coalition {
+  id          String   @id @default(uuid())
+  worldId     String   @default("hu119")
+  name        String
+  color       String   @default("#10b981")
+  allianceIds Int[]
+  alliances   String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  world       World?   @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, name])
+  @@index([worldId])
+}
+

@@ -31,10 +31,22 @@ export function buildCoalitionLookup(coalitions = []) {
         lookup.set(m.trim().toLowerCase(), c);
       } else if (m && typeof m === 'object' && m.name) {
         lookup.set(m.name.trim().toLowerCase(), c);
-      } else if (m && m.id !== undefined) {
-        lookup.set(String(m.id), c);
+        if (m.id !== undefined && m.id !== null) {
+          lookup.set(String(m.id), c);
+        }
+      } else if (m !== undefined && m !== null) {
+        lookup.set(String(m), c);
       }
     });
+
+    if (Array.isArray(c.allianceIds)) {
+      c.allianceIds.forEach(id => {
+        if (id !== undefined && id !== null) {
+          lookup.set(String(id), c);
+        }
+      });
+    }
+
     // Also map coalition's own name
     lookup.set(c.name.trim().toLowerCase(), c);
   });
@@ -86,7 +98,9 @@ export function classifyIslands(islands = [], towns = [], options = {}) {
 
     // Resolve coalition / alliance family
     const normName = aName.trim().toLowerCase();
-    const coalition = !isGhost ? coalitionLookup.get(normName) : null;
+    const coalition = !isGhost 
+      ? (coalitionLookup.get(normName) || (aId !== null && aId !== undefined ? coalitionLookup.get(String(aId)) : null))
+      : null;
     const familyKey = coalition ? `coalition_${coalition.name}` : (isGhost ? 'GHOST' : `ally_${aName}`);
     const familyName = coalition ? coalition.name : (isGhost ? 'Ghost Town' : aName);
     const familyColor = coalition?.color || customColors[aName] || raw.townColor || '#94a3b8';
