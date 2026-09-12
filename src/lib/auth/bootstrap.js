@@ -4,7 +4,8 @@ import { logAuditEvent } from './audit.js';
 
 /**
  * Ensures at least one GLOBAL_ADMIN account exists in the database.
- * Seeds initial credentials from environment variables if the user table is empty.
+ * Seeds initial credentials and links default team membership from environment
+ * variables if the user table is empty.
  *
  * @returns {Promise<object|null>}
  */
@@ -18,7 +19,7 @@ export async function ensureSuperAdmin() {
     const username = (
       process.env.ROOT_ADMIN_USERNAME ||
       process.env.NEXT_PUBLIC_MASTER_PLAYER_NAME ||
-      'admin'
+      'perfi'
     ).trim();
 
     const plainPassword = (
@@ -37,6 +38,54 @@ export async function ensureSuperAdmin() {
         isActive: true
       }
     });
+
+    // Try linking in-game player profile and default team
+    try {
+      const targetWorld = process.env.NEXT_PUBLIC_MASTER_WORLD || 'hu119';
+      const players = await prisma.player.findMany({
+        where: { name: { equals: username, mode: 'insensitive' } },
+      });
+      const matchedPlayer = players.find(p => p.worldId === targetWorld) || players[0];
+
+      if (matchedPlayer) {
+        const worldId = matchedPlayer.worldId;
+        let team = await prisma.team.findFirst({
+          where: { worldId }
+        });
+
+        if (!team) {
+          team = await prisma.team.create({
+            data: {
+              name: 'Commanders',
+              worldId,
+              description: `Primary leadership team on ${worldId}`
+            }
+          });
+        }
+
+        await prisma.teamMember.upsert({
+          where: { teamId_userId: { teamId: team.id, userId: admin.id } },
+          update: {
+            role: 'TEAM_ADMIN',
+            verificationStatus: 'VERIFIED',
+            verifiedAt: new Date(),
+          },
+          create: {
+            teamId: team.id,
+            userId: admin.id,
+            worldId,
+            role: 'TEAM_ADMIN',
+            playerId: matchedPlayer.id,
+            playerName: matchedPlayer.name,
+            verificationCode: 'GP-BOOTSTRAP',
+            verificationStatus: 'VERIFIED',
+            verifiedAt: new Date(),
+          }
+        });
+      }
+    } catch (linkErr) {
+      console.warn('[Bootstrap] Could not link player profile during bootstrap:', linkErr.message);
+    }
 
     await logAuditEvent({
       userId: admin.id,

@@ -222,6 +222,14 @@ export async function POST(request) {
     return response;
   } catch (err) {
     console.error('Error during login:', err);
+
+    if (err.message && (err.message.includes('relation "User" does not exist') || err.message.includes('relation "public.User" does not exist'))) {
+      return NextResponse.json(
+        { error: 'Database schema is not yet initialized. Please wait for schema synchronization or run prisma db push.' },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Internal server error during login' },
       { status: 500 }
