@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Trophy, Swords, Shield, TrendingUp, Clock,
   Activity, ArrowRight, Search, Zap, Crosshair, Users, Target, X, Pin, Loader2,
-  ArrowUpRight, ArrowDownRight, Minus, Skull, HelpCircle, MapPin, ChevronDown, Filter, Globe
+  ArrowUpRight, ArrowDownRight, Minus, Skull, HelpCircle, MapPin, ChevronDown, Filter, Globe, RefreshCw
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, AreaChart, Area } from 'recharts';
 import DeepDiveModal from '@/components/DeepDiveModal';
@@ -14,6 +14,8 @@ export default function ScoreboardDashboard() {
   const { activeWorldId, activeWorld } = useApp();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const storageLoadedRef = useRef(false);
   
   const [conquestFilter, setConquestFilter] = useState('');
   
@@ -53,59 +55,86 @@ export default function ScoreboardDashboard() {
     p_pts: false, p_abp: false, p_dbp: false
   });
 
+  const refreshPinnedBatch = useCallback(async (ids, type) => {
+    if (!ids || ids.length === 0 || !activeWorldId) return;
+    const setList = type === 'alliance' ? setPinnedAlliances : setPinnedPlayers;
+    try {
+      const res = await fetch(`/api/world/momentum?world=${activeWorldId}&type=${type}&ids=${ids.join(',')}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      const results = d.results || [];
+      const resultMap = new Map(results.map(r => [Number(r.id), r]));
+
+      setList(prev => prev.map(p => {
+        const idNum = Number(p.id);
+        if (resultMap.has(idNum)) {
+          const fresh = resultMap.get(idNum);
+          return { ...p, ...fresh, _isFetchingTrend: false };
+        }
+        return { ...p, _isFetchingTrend: false };
+      }));
+    } catch (err) {
+      console.error(`Error refreshing pinned ${type}s:`, err);
+      setList(prev => prev.map(p => ids.map(Number).includes(Number(p.id)) ? { ...p, _isFetchingTrend: false } : p));
+    }
+  }, [activeWorldId]);
+
+  const handleManualRefresh = async () => {
+    if (refreshing || !activeWorldId) return;
+    setRefreshing(true);
+    try {
+      const [scoreRes] = await Promise.all([
+        fetch(`/api/world/scoreboard?world=${activeWorldId}`).then(r => r.json()),
+        refreshPinnedBatch(pinnedPlayers.map(p => p.id), 'player'),
+        refreshPinnedBatch(pinnedAlliances.map(a => a.id), 'alliance'),
+      ]);
+      if (scoreRes) setData(scoreRes);
+    } catch (e) {
+      console.error("Manual refresh error:", e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     if (!activeWorldId) return;
     setLoading(true);
+    storageLoadedRef.current = false;
+    let initialPlayers = [];
+    let initialAlliances = [];
     try {
       const p = localStorage.getItem(`grepoPinnedPlayers_${activeWorldId}`) || localStorage.getItem('grepoPinnedPlayers');
       const a = localStorage.getItem(`grepoPinnedAlliances_${activeWorldId}`) || localStorage.getItem('grepoPinnedAlliances');
-      if (p) setPinnedPlayers(JSON.parse(p));
-      else setPinnedPlayers([]);
-      if (a) setPinnedAlliances(JSON.parse(a));
-      else setPinnedAlliances([]);
+      if (p) initialPlayers = JSON.parse(p);
+      if (a) initialAlliances = JSON.parse(a);
     } catch(e) {}
+
+    setPinnedPlayers(initialPlayers.map(item => ({ ...item, _isFetchingTrend: true })));
+    setPinnedAlliances(initialAlliances.map(item => ({ ...item, _isFetchingTrend: true })));
+    storageLoadedRef.current = true;
+
+    // Immediately trigger fresh batch fetch for all pinned entities
+    if (initialPlayers.length > 0) {
+      refreshPinnedBatch(initialPlayers.map(x => x.id), 'player');
+    }
+    if (initialAlliances.length > 0) {
+      refreshPinnedBatch(initialAlliances.map(x => x.id), 'alliance');
+    }
 
     fetch(`/api/world/scoreboard?world=${activeWorldId}`)
       .then(res => res.json())
       .then(d => {
         setData(d);
-        
-        setPinnedAlliances(prev => prev.map(pinned => {
-          let fresh = null;
-          if (d.alliances) {
-            for (const key in d.alliances) {
-              if (Array.isArray(d.alliances[key])) {
-                const match = d.alliances[key].find(item => item.id === pinned.id);
-                if (match) { fresh = match; break; }
-              }
-            }
-          }
-          return fresh ? { ...pinned, ...fresh, _isFresh: false } : pinned;
-        }));
-
-        setPinnedPlayers(prev => prev.map(pinned => {
-          let fresh = null;
-          if (d.players) {
-            for (const key in d.players) {
-              if (Array.isArray(d.players[key])) {
-                const match = d.players[key].find(item => item.id === pinned.id);
-                if (match) { fresh = match; break; }
-              }
-            }
-          }
-          return fresh ? { ...pinned, ...fresh, _isFresh: false } : pinned;
-        }));
-
         setLoading(false);
       })
       .catch(err => {
         console.error(err);
         setLoading(false);
       });
-  }, [activeWorldId]);
+  }, [activeWorldId, refreshPinnedBatch]);
 
   useEffect(() => {
-    if (!activeWorldId) return;
+    if (!activeWorldId || !storageLoadedRef.current) return;
     localStorage.setItem(`grepoPinnedPlayers_${activeWorldId}`, JSON.stringify(pinnedPlayers));
     localStorage.setItem(`grepoPinnedAlliances_${activeWorldId}`, JSON.stringify(pinnedAlliances));
   }, [pinnedPlayers, pinnedAlliances, activeWorldId]);
@@ -143,35 +172,6 @@ export default function ScoreboardDashboard() {
       setPlayerIsSearching(false);
     }
   }, [playerSearch, activeWorldId]);
-
-  // Fetch missing trends for pinned items dynamically
-  useEffect(() => {
-    if (!activeWorldId) return;
-    const fetchMissingTrends = async (items, type, setList) => {
-      const missing = items.filter(i => !i._isFresh && !i._isFetchingTrend);
-      if (missing.length === 0) return;
-
-      setList(prev => prev.map(p => missing.find(m => m.id === p.id) ? { ...p, _isFetchingTrend: true } : p));
-
-      await Promise.all(missing.map(async (item) => {
-        try {
-          const res = await fetch(`/api/world/momentum?world=${activeWorldId}&q=${encodeURIComponent(item.name)}&type=${type}`);
-          const d = await res.json();
-          const match = (d.results || []).find(r => r.id === item.id);
-          if (match) {
-            setList(prev => prev.map(p => p.id === match.id ? { ...p, ...match, _isFetchingTrend: false, _isFresh: true } : p));
-          } else {
-             setList(prev => prev.map(p => p.id === item.id ? { ...p, _isFetchingTrend: false, _isFresh: true, trendPts: 0, gainsAPts: 0, gainsBPts: 0 } : p));
-          }
-        } catch(e) {
-          setList(prev => prev.map(p => p.id === item.id ? { ...p, _isFetchingTrend: false, _isFresh: true } : p));
-        }
-      }));
-    };
-
-    fetchMissingTrends(pinnedPlayers, 'player', setPinnedPlayers);
-    fetchMissingTrends(pinnedAlliances, 'alliance', setPinnedAlliances);
-  }, [pinnedPlayers, pinnedAlliances, activeWorldId]);
 
   // Helper to handle Chart specific searches
   const handleChartSearch = (chartKey, query, type) => {
@@ -258,11 +258,17 @@ export default function ScoreboardDashboard() {
 
 
   const togglePin = (item, isAlliance) => {
+    const type = isAlliance ? 'alliance' : 'player';
+    const list = isAlliance ? pinnedAlliances : pinnedPlayers;
     const setList = isAlliance ? setPinnedAlliances : setPinnedPlayers;
-    setList(prev => {
-      if (prev.find(p => p.id === item.id)) return prev.filter(p => p.id !== item.id);
-      return [...prev, item];
-    });
+    const exists = list.some(p => p.id === item.id);
+
+    if (exists) {
+      setList(prev => prev.filter(p => p.id !== item.id));
+    } else {
+      setList(prev => [...prev, { ...item, _isFetchingTrend: true }]);
+      refreshPinnedBatch([item.id], type);
+    }
   };
 
   const getTrendPill = (item, metric) => {
@@ -309,7 +315,8 @@ export default function ScoreboardDashboard() {
 
     if (metric === 'pts') { mainValue = item.points; }
     if (metric === 'allbp') { mainValue = item.allBp; }
-    if (metric === 'conquests' || metric === 'losses') { mainValue = item.count; }
+    if (metric === 'conquests') { mainValue = item.conquests ?? item.count ?? 0; }
+    if (metric === 'losses') { mainValue = item.losses ?? item.count ?? 0; }
 
     return (
       <div 
@@ -674,7 +681,15 @@ export default function ScoreboardDashboard() {
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: '#94a3b8', margin: 0 }}>Daily Momentum (Since 2:00 AM)</h2>
-          <HelpCircle size={16} color="#64748b" style={{ cursor: 'pointer' }} onClick={() => setShowFaq(true)} />
+          <HelpCircle size={16} color="#64748b" style={{ cursor: 'pointer' }} onClick={() => setShowFaq(true)} title="Momentum FAQ" />
+          <button
+            onClick={handleManualRefresh}
+            title="Refresh Scoreboard & Pinned Data"
+            disabled={refreshing}
+            style={{ background: 'none', border: 'none', cursor: refreshing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+          >
+            <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} style={{ color: refreshing ? '#3b82f6' : '#64748b' }} />
+          </button>
         </div>
 
         {/* 6 Momentum Charts: Alliances Top, Players Bottom */}
