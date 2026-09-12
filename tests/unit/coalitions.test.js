@@ -120,4 +120,74 @@ describe('Alliance Families & Coalitions Integration', () => {
     expect(dominions.polygons.features[0].properties.alliance).toBe('Sion Family');
     expect(dominions.polygons.features[0].properties.color).toBe('#10b981');
   });
+
+  test('classifyIslands identifies frontline confrontation islands vs safe core heartland', () => {
+    const islands = [
+      { id: 1, x: 500, y: 500, availableTowns: 0, islandType: 1 },
+      { id: 2, x: 503, y: 500, availableTowns: 0, islandType: 1 },
+      { id: 3, x: 550, y: 550, availableTowns: 0, islandType: 1 }
+    ];
+
+    const towns = [
+      // Sion Family on island 1 (close to enemy)
+      { id: 1, islandX: 500, islandY: 500, alliance: 'SION-REND', allianceId: 100, player: 'P1' },
+      // Enemy on island 2 (adjacent frontline, ~3 units = ~1.08 deg away)
+      { id: 2, islandX: 503, islandY: 500, alliance: '-WANTED-', allianceId: 999, player: 'E1' },
+      // Sion Family on island 3 (deep in heartland, > 50 units away)
+      { id: 3, islandX: 550, islandY: 550, alliance: 'SION-REND AK.', allianceId: 101, player: 'P2' }
+    ];
+
+    const result = classifyIslands(islands, towns, { coalitions: [testCoalition] });
+
+    const frontIsland = result.islandSummaryList.find(i => i.islandKey === '500_500');
+    const safeIsland = result.islandSummaryList.find(i => i.islandKey === '550_550');
+    const enemyFront = result.islandSummaryList.find(i => i.islandKey === '503_500');
+
+    // Island 1 is frontline confronting WANTED
+    expect(frontIsland.isFrontline).toBe(true);
+    expect(frontIsland.threatLevel).toBe('CRITICAL');
+    expect(frontIsland.frontlineRival).toBe('-WANTED-');
+    expect(frontIsland.isSafeCore).toBe(false);
+
+    // Enemy Island 2 is frontline confronting Sion Family
+    expect(enemyFront.isFrontline).toBe(true);
+    expect(enemyFront.frontlineRival).toBe('Sion Family');
+
+    // Island 3 is deep in safe core heartland
+    expect(safeIsland.isFrontline).toBe(false);
+    expect(safeIsland.threatLevel).toBe('NONE');
+    expect(safeIsland.isSafeCore).toBe(true);
+
+    // Frontline GeoJSON collection has exactly the frontline islands
+    expect(result.frontlineIslandsGeoJSON.features.length).toBe(2);
+    expect(result.frontlineIslandsGeoJSON.features[0].properties.combatLabel).toContain('⚔️');
+  });
+
+  test('computeMaritimeBoundaries generates non-looping perpendicular demarcation barriers', async () => {
+    const { computeMaritimeBoundaries } = await import('../../src/lib/map/maritimeBoundaries.js');
+
+    const islands = [
+      { id: 1, x: 500, y: 500, availableTowns: 0, islandType: 1 },
+      { id: 2, x: 503, y: 500, availableTowns: 0, islandType: 1 }
+    ];
+    const towns = [
+      { id: 1, islandX: 500, islandY: 500, alliance: 'SION-REND', allianceId: 100, player: 'P1' },
+      { id: 2, islandX: 503, islandY: 500, alliance: '-WANTED-', allianceId: 999, player: 'E1' }
+    ];
+
+    const classification = classifyIslands(islands, towns, { coalitions: [testCoalition] });
+    const boundaries = computeMaritimeBoundaries(classification.islandSummaryList);
+
+    expect(boundaries.frontlinesGeoJSON.features.length).toBe(1);
+    const barrier = boundaries.frontlinesGeoJSON.features[0];
+
+    // Every barrier is a straight, non-looping 2-point LineString
+    expect(barrier.geometry.type).toBe('LineString');
+    expect(barrier.geometry.coordinates.length).toBe(2);
+    expect(barrier.properties.type).toBe('demarcation_barrier');
+    expect(barrier.properties.isFrontline).toBe(true);
+
+    // No macro labels generated for single-island 1-town outposts
+    expect(boundaries.macroLabelsGeoJSON.features.length).toBe(0);
+  });
 });

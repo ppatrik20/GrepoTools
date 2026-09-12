@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && prisma generate",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
@@ -13,7 +13,9 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "@prisma/extension-accelerate": "^3.0.1",
+    "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
+    "jose": "^6.2.12",
     "lucide-react": "^1.17.0",
     "maplibre-gl": "^5.24.0",
     "next": "16.2.7",

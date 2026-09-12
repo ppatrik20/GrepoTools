@@ -241,28 +241,32 @@ export function computeMaritimeBoundaries(islandSummaryList = [], options = {}) 
         }
       });
 
-      // Macro Label placed at centroid of the maritime basin
-      const centerLng = islandPoints.reduce((s, p) => s + p[0], 0) / islandPoints.length;
-      const centerLat = islandPoints.reduce((s, p) => s + p[1], 0) / islandPoints.length;
+      // Macro Label placed at centroid of significant maritime basins (filter out isolated 1-town outpost rocks)
+      if (cluster.length >= 2 || totalTowns >= 6) {
+        const centerLng = islandPoints.reduce((s, p) => s + p[0], 0) / islandPoints.length;
+        const centerLat = islandPoints.reduce((s, p) => s + p[1], 0) / islandPoints.length;
 
-      labelFeatures.push({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [Number(centerLng.toFixed(5)), Number(centerLat.toFixed(5))]
-        },
-        properties: {
-          label: `${group.name} (${cleanIslandCount}/${cluster.length} clean • ${totalTowns}t)`,
-          allianceName: group.name,
-          color: group.color,
-          islandCount: cluster.length,
-          totalTowns
-        }
-      });
+        labelFeatures.push({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [Number(centerLng.toFixed(5)), Number(centerLat.toFixed(5))]
+          },
+          properties: {
+            label: cluster.length > 1
+              ? `${group.name} (${cluster.length} isl • ${totalTowns}t)`
+              : `${group.name} (${totalTowns} towns)`,
+            allianceName: group.name,
+            color: group.color,
+            islandCount: cluster.length,
+            totalTowns
+          }
+        });
+      }
     });
   });
 
-  // 3. Build Island Status Halos (Clean vs Infiltrated vs Contested)
+  // 3. Build Island Status Halos (Clean, Infiltrated, Contested, Frontline, Safe Core)
   islandSummaryList.forEach(isl => {
     if (isl.occupiedCount === 0) return;
 
@@ -271,20 +275,31 @@ export function computeMaritimeBoundaries(islandSummaryList = [], options = {}) 
     let haloType = 'clean';
     let pulseRate = 0;
 
-    if (isl.status === ISLAND_STATUS.CLEAN) {
-      haloColor = isl.dominantColor;
-      strokeColor = '#10b981'; // Emerald edge for 100% clean
-      haloType = 'clean';
+    if (isl.status === ISLAND_STATUS.CONTESTED) {
+      haloColor = '#f59e0b'; // Amber alert center
+      strokeColor = '#ef4444'; // Red combat ring
+      haloType = 'contested';
+      pulseRate = 800;
     } else if (isl.status === ISLAND_STATUS.INFILTRATED) {
       haloColor = '#f59e0b'; // Amber alert
       strokeColor = '#ef4444'; // Red breach border
       haloType = 'infiltrated';
       pulseRate = 1200;
-    } else if (isl.status === ISLAND_STATUS.CONTESTED) {
-      haloColor = '#ec4899'; // High tension
-      strokeColor = '#f43f5e';
-      haloType = 'contested';
-      pulseRate = 800;
+    } else if (isl.isFrontline) {
+      haloColor = isl.dominantColor;
+      strokeColor = '#f43f5e'; // Combat coral perimeter
+      haloType = 'frontline';
+      pulseRate = 1400;
+    } else if (isl.status === ISLAND_STATUS.CLEAN) {
+      haloColor = isl.dominantColor;
+      strokeColor = '#10b981'; // Emerald edge for 100% clean safe haven
+      haloType = 'clean';
+      pulseRate = 0;
+    } else {
+      haloColor = isl.dominantColor;
+      strokeColor = '#64748b';
+      haloType = 'standard';
+      pulseRate = 0;
     }
 
     islandHaloFeatures.push({
@@ -303,6 +318,9 @@ export function computeMaritimeBoundaries(islandSummaryList = [], options = {}) 
         strokeColor,
         haloType,
         pulseRate,
+        isFrontline: Boolean(isl.isFrontline),
+        threatLevel: isl.threatLevel || 'NONE',
+        frontlineRival: isl.frontlineRival || null,
         dominantCount: isl.dominantCount,
         enemyCount: isl.enemyCount,
         totalSlots: isl.totalSlots,
@@ -311,30 +329,16 @@ export function computeMaritimeBoundaries(islandSummaryList = [], options = {}) 
     });
   });
 
-function chaikinSmooth(points, iterations = 2) {
-  if (points.length < 3) return points;
-  let current = points;
-  for (let it = 0; it < iterations; it++) {
-    const next = [current[0]];
-    for (let i = 0; i < current.length - 1; i++) {
-      const p0 = current[i];
-      const p1 = current[i + 1];
-      const q = [0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]];
-      const r = [0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1]];
-      next.push(q, r);
-    }
-    next.push(current[current.length - 1]);
-    current = next;
-  }
-  return current;
-}
-
-  // 4. Compute Continuous Frontlines between Opposing Alliance Maritime Waters
+  // 4. Compute Clean Perpendicular Maritime Demarcation Barriers between Opposing Waters
+  // Replaces the chaotic midpoint chaining and snaking loops with crisp, non-intersecting naval barriers.
   const frontlineFeatures = [];
-  const populatedIslands = islandSummaryList.filter(i => i.status !== ISLAND_STATUS.NEUTRAL && i.dominantAlliance !== 'None');
+  const populatedIslands = islandSummaryList.filter(i => 
+    i.occupiedCount > 0 && 
+    i.dominantAlliance !== 'None' && 
+    i.status !== ISLAND_STATUS.NEUTRAL
+  );
 
-  // Group opposing alliance interaction midpoints
-  const allianceInteractions = new Map();
+  const processedPairs = new Set();
 
   for (let i = 0; i < populatedIslands.length; i++) {
     for (let j = i + 1; j < populatedIslands.length; j++) {
@@ -345,7 +349,11 @@ function chaikinSmooth(points, iterations = 2) {
 
       const dist = Math.hypot(islB.centerLng - islA.centerLng, islB.centerLat - islA.centerLat);
 
-      if (dist <= clusterMaxGapDeg * 1.3) {
+      if (dist <= clusterMaxGapDeg * 1.2) {
+        const pairKey = [islA.islandKey, islB.islandKey].sort().join('::');
+        if (processedPairs.has(pairKey)) continue;
+        processedPairs.add(pairKey);
+
         const midLng = (islA.centerLng + islB.centerLng) / 2;
         const midLat = (islA.centerLat + islB.centerLat) / 2;
 
@@ -355,109 +363,39 @@ function chaikinSmooth(points, iterations = 2) {
         const nx = -dy / len;
         const ny = dx / len;
 
-        const tension = Math.min(1.0, 0.4 + (1.0 - dist / (clusterMaxGapDeg * 1.3)) * 0.6);
+        const tension = Math.min(1.0, 0.4 + (1.0 - dist / (clusterMaxGapDeg * 1.2)) * 0.6);
+        const barrierSpan = Math.min(0.55, Math.max(0.20, dist * 0.28));
+
+        const p1 = [
+          Number((midLng - nx * barrierSpan).toFixed(5)),
+          Number((midLat - ny * barrierSpan * 0.72).toFixed(5))
+        ];
+        const p2 = [
+          Number((midLng + nx * barrierSpan).toFixed(5)),
+          Number((midLat + ny * barrierSpan * 0.72).toFixed(5))
+        ];
 
         const aA = islA.dominantAlliance < islB.dominantAlliance ? islA.dominantAlliance : islB.dominantAlliance;
         const aB = islA.dominantAlliance < islB.dominantAlliance ? islB.dominantAlliance : islA.dominantAlliance;
-        const pairKey = `${aA}|${aB}`;
 
-        if (!allianceInteractions.has(pairKey)) {
-          allianceInteractions.set(pairKey, {
+        frontlineFeatures.push({
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [p1, p2]
+          },
+          properties: {
             allianceA: aA,
             allianceB: aB,
-            points: []
-          });
-        }
-
-        allianceInteractions.get(pairKey).points.push({
-          lng: midLng,
-          lat: midLat,
-          nx,
-          ny,
-          tension,
-          dist
+            tension: +tension.toFixed(2),
+            dist: +dist.toFixed(2),
+            isFrontline: true,
+            type: 'demarcation_barrier'
+          }
         });
       }
     }
   }
-
-  // Chain and smooth interaction points into continuous battlefronts
-  allianceInteractions.forEach(interaction => {
-    const pts = interaction.points;
-    if (pts.length === 0) return;
-
-    // Cluster points within spatial proximity into frontier chains
-    const used = new Set();
-    const chains = [];
-
-    for (let i = 0; i < pts.length; i++) {
-      if (used.has(i)) continue;
-      const chain = [pts[i]];
-      used.add(i);
-
-      let extended = true;
-      while (extended) {
-        extended = false;
-        const last = chain[chain.length - 1];
-        let bestDist = Infinity;
-        let bestIdx = -1;
-
-        for (let j = 0; j < pts.length; j++) {
-          if (used.has(j)) continue;
-          const d = Math.hypot(pts[j].lng - last.lng, pts[j].lat - last.lat);
-          if (d <= clusterMaxGapDeg * 1.1 && d < bestDist) {
-            bestDist = d;
-            bestIdx = j;
-          }
-        }
-
-        if (bestIdx !== -1) {
-          chain.push(pts[bestIdx]);
-          used.add(bestIdx);
-          extended = true;
-        }
-      }
-      chains.push(chain);
-    }
-
-    // Convert each chain into a continuous smoothed LineString
-    chains.forEach(chain => {
-      let coords = [];
-      const avgTension = chain.reduce((s, p) => s + p.tension, 0) / chain.length;
-
-      if (chain.length === 1) {
-        // Single point: extend perpendicular to create a clear border segment
-        const p = chain[0];
-        const span = 0.50;
-        coords = [
-          [p.lng - p.nx * span, p.lat - p.ny * span],
-          [p.lng + p.nx * span, p.lat + p.ny * span]
-        ];
-      } else {
-        coords = chain.map(p => [p.lng, p.lat]);
-        coords = chaikinSmooth(coords, 2);
-      }
-
-      const formatted = coords.map(([lng, lat]) => [
-        Number(lng.toFixed(5)),
-        Number(lat.toFixed(5))
-      ]);
-
-      frontlineFeatures.push({
-        type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: formatted
-        },
-        properties: {
-          allianceA: interaction.allianceA,
-          allianceB: interaction.allianceB,
-          tension: +avgTension.toFixed(2),
-          isFrontline: true
-        }
-      });
-    });
-  });
 
   return {
     oceanBasinsGeoJSON: { type: 'FeatureCollection', features: basinFeatures },
@@ -467,6 +405,8 @@ function chaikinSmooth(points, iterations = 2) {
   };
 }
 
-export default {
+const maritimeBoundaries = {
   computeMaritimeBoundaries
 };
+
+export default maritimeBoundaries;

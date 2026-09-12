@@ -24,50 +24,11 @@ const MYTHICAL_FLYING_UNITS = [
   { id: 'griffin', name: 'Griffin', baseSpeed: 18, color: '#eab308' }
 ];
 
-export function calculateDistance(origin, target) {
-  if (!origin || !target) return 0;
-  if (origin.id && target.id && origin.id === target.id) return 0;
-
-  const ox = Number(origin.islandX ?? origin.x ?? 500);
-  const oy = Number(origin.islandY ?? origin.y ?? 500);
-  const tx = Number(target.islandX ?? target.x ?? 500);
-  const ty = Number(target.islandY ?? target.y ?? 500);
-  
-  const islandDist = Math.sqrt(Math.pow(tx - ox, 2) + Math.pow(ty - oy, 2));
-
-  // If on the SAME island (island coordinates match):
-  if (islandDist < 0.01) {
-    const slot1 = Number(origin.islandSlot ?? 0);
-    const slot2 = Number(target.islandSlot ?? 1);
-    const slotDiff = Math.abs(slot2 - slot1) || 1;
-    // On-island distance scale: 2.0 to 8.0 units
-    return 2.0 + slotDiff * 0.35;
-  }
-
-  return islandDist;
-}
-
-export function calculateTravelTimeSeconds(distance, unitBaseSpeed, worldSpeed = 3, unitSpeed = 1) {
-  const dist = Number(distance || 0);
-  const speed = Number(unitBaseSpeed || 10);
-  const wSpeed = Math.max(1, Number(worldSpeed || 3));
-  const uSpeed = Math.max(1, Number(unitSpeed || 1));
-
-  if (dist <= 0) return 0;
-  
-  // Official Grepolis travel time formula:
-  // Duration (minutes) = (distance * 50) / (speed * worldSpeed * unitSpeed)
-  const minutes = (dist * 50) / (speed * wSpeed * uSpeed);
-  return Math.max(30, Math.round(minutes * 60));
-}
-
-export function formatDuration(totalSeconds) {
-  if (!totalSeconds || totalSeconds <= 0) return '00:00:00';
-  const hrs = Math.floor(totalSeconds / 3600);
-  const mins = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
-  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
+export { 
+  calculateDistance, 
+  calculateTravelTimeSeconds, 
+  formatDuration 
+} from '@/lib/traveltime';
 
 function RoutePlannerTool({
   origin,
@@ -83,6 +44,11 @@ function RoutePlannerTool({
     (Number(origin.islandX ?? origin.x) === Number(target.islandX ?? target.x)) &&
     (Number(origin.islandY ?? origin.y) === Number(target.islandY ?? target.y)) &&
     (origin.id !== target.id);
+
+  const townModifiers = {
+    cartographyResearched: Boolean(origin?.cartographyResearched),
+    hasLighthouse: Boolean(origin?.hasLighthouse)
+  };
 
   return (
     <div className="glass-panel fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl p-4 backdrop-blur-xl animate-fade-in w-[520px] max-w-[95vw]">
@@ -174,7 +140,10 @@ function RoutePlannerTool({
           <div className="text-[10px] font-bold uppercase text-slate-400 px-1">Naval Fleet Times</div>
           <div className="grid grid-cols-2 gap-1.5">
             {NAVAL_UNITS.map(unit => {
-              const seconds = calculateTravelTimeSeconds(distance, unit.baseSpeed, worldSpeed, unitSpeed);
+              const seconds = calculateTravelTimeSeconds(distance, unit.baseSpeed, worldSpeed, unitSpeed, {
+                ...townModifiers,
+                includeNavalDelay: true
+              });
               const Icon = unit.icon;
               return (
                 <div key={unit.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/60 border border-slate-700/50">
@@ -191,7 +160,7 @@ function RoutePlannerTool({
           <div className="text-[10px] font-bold uppercase text-slate-400 px-1 mt-2">Flying Mythical Times</div>
           <div className="grid grid-cols-2 gap-1.5">
             {MYTHICAL_FLYING_UNITS.map(unit => {
-              const seconds = calculateTravelTimeSeconds(distance, unit.baseSpeed, worldSpeed, unitSpeed);
+              const seconds = calculateTravelTimeSeconds(distance, unit.baseSpeed, worldSpeed, unitSpeed, townModifiers);
               return (
                 <div key={unit.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/60 border border-slate-700/50">
                   <div className="flex items-center gap-1.5 min-w-0">

@@ -1,6 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --color-bg-dark: #0b1120;
+  --color-bg-card: rgba(15, 23, 42, 0.75);
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-accent: #8b5cf6;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+}
+
 :root {
   --bg-dark: #0b1120;
   --bg-card: rgba(15, 23, 42, 0.75);
@@ -323,3 +336,18 @@ input[type="number"]::-webkit-inner-spin-button {
 .recharts-wrapper, .recharts-wrapper *:focus, .recharts-surface:focus {
   outline: none !important;
 }
+
+/* Standardized Grepolis Modal Backdrop */
+.grepo-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background-color: rgba(11, 17, 32, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+

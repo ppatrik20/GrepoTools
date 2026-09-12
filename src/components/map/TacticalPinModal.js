@@ -42,12 +42,6 @@ export default function TacticalPinModal({
     setSavedSuccess(false);
   }, [existingPin, isOpen, town]);
 
-  if (!isOpen || !town) return null;
-
-  const townName = town.name || `Town #${town.id}`;
-  const townX = town.islandX ?? town.x ?? 500;
-  const townY = town.islandY ?? town.y ?? 500;
-
   const timeoutRef = React.useRef(null);
 
   useEffect(() => {
@@ -57,6 +51,12 @@ export default function TacticalPinModal({
       }
     };
   }, []);
+
+  if (!isOpen || !town) return null;
+
+  const townName = town.name || `Town #${town.id}`;
+  const townX = town.islandX ?? town.x ?? 500;
+  const townY = town.islandY ?? town.y ?? 500;
 
   const handleSave = () => {
     const pinPayload = {
@@ -100,7 +100,7 @@ export default function TacticalPinModal({
   const sniperUrl = exportPinToSniper(currentPinDraft);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+    <div className="grepo-modal-backdrop animate-fade-in">
       <div 
         className="glass-panel w-full max-w-md rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl p-5 flex flex-col gap-4 text-white"
         onClick={(e) => e.stopPropagation()}

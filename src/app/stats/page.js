@@ -54,6 +54,16 @@ export default function ScoreboardDashboard() {
     a_pts: false, a_abp: false, a_dbp: false,
     p_pts: false, p_abp: false, p_dbp: false
   });
+  const chartTimersRef = useRef({});
+
+  // Cleanup chart timers on unmount
+  useEffect(() => {
+    return () => {
+      if (chartTimersRef.current) {
+        Object.values(chartTimersRef.current).forEach(clearTimeout);
+      }
+    };
+  }, []);
 
   const refreshPinnedBatch = useCallback(async (ids, type) => {
     if (!ids || ids.length === 0 || !activeWorldId) return;
@@ -176,12 +186,14 @@ export default function ScoreboardDashboard() {
   // Helper to handle Chart specific searches
   const handleChartSearch = (chartKey, query, type) => {
     setChartSearches(prev => ({ ...prev, [chartKey]: query }));
+    if (chartTimersRef.current[chartKey]) {
+      clearTimeout(chartTimersRef.current[chartKey]);
+    }
     
     if (query.length >= 2 && activeWorldId) {
       setChartIsSearching(prev => ({ ...prev, [chartKey]: true }));
-      if (window[`timer_${chartKey}`]) clearTimeout(window[`timer_${chartKey}`]);
       
-      window[`timer_${chartKey}`] = setTimeout(() => {
+      chartTimersRef.current[chartKey] = setTimeout(() => {
         fetch(`/api/world/momentum?world=${activeWorldId}&q=${encodeURIComponent(query)}&type=${type}`)
           .then(res => res.json())
           .then(d => {

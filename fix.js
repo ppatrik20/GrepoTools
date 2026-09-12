@@ -1,1 +1,0 @@
-const fs = require('fs'); let content = fs.readFileSync('src/app/snipe/recall/page.js', 'utf8'); content = content.replace(/\\\/g, '\'); content = content.replace(/\\\$/g, '$'); fs.writeFileSync('src/app/snipe/recall/page.js', content);

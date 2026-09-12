@@ -6,7 +6,7 @@ import { useApp } from '@/context/AppContext';
 import { 
   Globe, User, ChevronDown, RefreshCw, Clock, Search, 
   Map, Trophy, Shield, Crosshair, BarChart3, Settings, 
-  FileText, Check, AlertCircle 
+  FileText, Check, AlertCircle, Users, LogIn, LogOut
 } from 'lucide-react';
 
 export default function Navigation() {
@@ -19,7 +19,9 @@ export default function Navigation() {
     activePlayer, 
     switchPlayer,
     refreshWorlds,
-    refreshActivePlayer
+    refreshActivePlayer,
+    user,
+    logout
   } = useApp();
 
   // Dropdown states
@@ -112,6 +114,11 @@ export default function Navigation() {
     }
   };
 
+  const isGlobalAdmin = user?.globalRole === 'GLOBAL_ADMIN';
+  const teams = user?.teams || [];
+  const currentTeam = teams.find(t => t.worldId === activeWorldId) || teams[0];
+  const isUnverified = teams.length > 0 && !isGlobalAdmin && teams.every(t => t.status === 'UNVERIFIED');
+
   const navLinks = [
     { href: '/', label: 'Dashboard', icon: BarChart3 },
     { href: '/map', label: 'World Map', icon: Map },
@@ -119,8 +126,15 @@ export default function Navigation() {
     { href: '/planner', label: 'City Planner', icon: Shield },
     { href: '/snipe/recall', label: 'Recall Sniper', icon: Crosshair },
     { href: '/reports', label: 'Reports', icon: FileText },
-    { href: '/world', label: 'Admin', icon: Settings },
   ];
+
+  if (user) {
+    navLinks.push({ href: '/team', label: 'Team', icon: Users });
+    if (isGlobalAdmin) {
+      navLinks.push({ href: '/world', label: 'Admin', icon: Settings });
+      navLinks.push({ href: '/admin/audit-logs', label: 'Audit Logs', icon: FileText });
+    }
+  }
 
   return (
     <>
@@ -229,7 +243,7 @@ export default function Navigation() {
           </div>
 
           {/* Right: Navigation Links */}
-          <div className="nav-links">
+          <div className="nav-links flex items-center gap-1">
             {navLinks.map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
               return (
@@ -243,6 +257,46 @@ export default function Navigation() {
                 </Link>
               );
             })}
+
+            {/* Auth Session Widget */}
+            <div className="flex items-center gap-2 pl-3 ml-2 border-l border-slate-800">
+              {user ? (
+                <div className="flex items-center gap-2.5">
+                  {isUnverified && (
+                    <Link
+                      href="/verify"
+                      className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-semibold text-xs rounded-lg flex items-center gap-1.5 transition animate-pulse"
+                    >
+                      <AlertCircle size={13} className="text-amber-400" />
+                      <span>Verify Town</span>
+                    </Link>
+                  )}
+                  <div className="hidden sm:flex flex-col text-right">
+                    <span className="text-xs font-bold text-white leading-tight">
+                      {user.username}
+                    </span>
+                    <span className="text-[10px] font-mono text-amber-400 uppercase leading-tight">
+                      {isGlobalAdmin ? 'Global Admin' : currentTeam?.role === 'TEAM_ADMIN' ? 'Team Admin' : 'Team Member'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="p-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700/60 rounded-lg text-slate-400 hover:text-red-400 transition cursor-pointer"
+                    title="Sign Out"
+                  >
+                    <LogOut size={15} />
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  href="/login"
+                  className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-300 transition"
+                >
+                  <LogIn size={13} />
+                  <span>Sign In</span>
+                </Link>
+              )}
+            </div>
           </div>
 
         </div>
@@ -251,7 +305,7 @@ export default function Navigation() {
       {/* Switch Player Modal */}
       {playerModalOpen && (
         <div 
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in"
+          className="grepo-modal-backdrop animate-fade-in"
           onClick={(e) => { if (e.target === e.currentTarget) setPlayerModalOpen(false); }}
         >
           <div 
@@ -264,7 +318,7 @@ export default function Navigation() {
                   <User size={18} className="text-accent" /> Switch Active Player
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Select your in-game identity for world <strong className="text-primary">{activeWorldId.toUpperCase()}</strong>
+                  Select your in-game identity for world <strong className="text-primary">{activeWorldId?.toUpperCase() || ''}</strong>
                 </p>
               </div>
               <button 
@@ -332,7 +386,7 @@ export default function Navigation() {
 
               {playerSearchQuery.length >= 2 && playerSearchResults.length === 0 && !searchingPlayers && (
                 <div className="text-center py-6 text-slate-400 text-sm">
-                  No players found matching "{playerSearchQuery}".
+                  No players found matching &quot;{playerSearchQuery}&quot;.
                 </div>
               )}
 

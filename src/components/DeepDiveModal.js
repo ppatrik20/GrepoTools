@@ -80,7 +80,7 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
 
   return (
     <div 
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in"
+      className="grepo-modal-backdrop animate-fade-in"
       onClick={(e) => { if(e.target === e.currentTarget) onClose(); }}
     >
       <div 

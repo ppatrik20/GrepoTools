@@ -31,6 +31,9 @@ model World {
   snipeOperations SnipeOperation[]
   reports         Report[]
   coalitions      Coalition[]
+  teams           Team[]
+  teamMemberships TeamMember[]
+  invites         Invite[]
 
   @@index([isActive])
 }
@@ -227,6 +230,7 @@ model Town {
 model SnipeOperation {
   id                String    @id @default(uuid())
   worldId           String    @default("hu119")
+  userId            String?
   label             String
   type              String    @default("recall")
   worldType         String    @default("siege")
@@ -242,10 +246,12 @@ model SnipeOperation {
   targetTown        Town      @relation("TargetTown", fields: [targetTownId, worldId], references: [id, worldId], onDelete: Cascade)
   originTown        Town      @relation("OriginTown", fields: [originTownId, worldId], references: [id, worldId], onDelete: Cascade)
   world             World?    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([worldId, sendTime])
   @@index([sendTime])
   @@index([status])
+  @@index([userId])
 }
 
 model TownHistory {
@@ -361,4 +367,159 @@ model Coalition {
   @@unique([worldId, name])
   @@index([worldId])
 }
+
+model User {
+  id                  String         @id @default(uuid())
+  username            String         @unique // Grepolis in-game username (case-preserved, normalized for lookup)
+  passwordHash        String
+  globalRole          String         @default("USER") // "GLOBAL_ADMIN" | "USER"
+  isActive            Boolean        @default(true)
+  failedLoginAttempts Int            @default(0)
+  lockoutUntil        DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  teamMemberships     TeamMember[]
+  refreshTokens       RefreshToken[]
+  createdInvites      Invite[]
+  auditLogs           AuditLog[]
+  snipeOperations     SnipeOperation[]
+
+  @@index([username])
+}
+
+model Team {
+  id          String       @id @default(uuid())
+  name        String       // e.g. "Aegis Vanguard"
+  worldId     String
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  world       World        @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  invites     Invite[]
+  customRoles TeamCustomRole[]
+
+  @@unique([worldId, name])
+  @@index([worldId])
+}
+
+model TeamMember {
+  id                 String    @id @default(uuid())
+  teamId             String
+  userId             String
+  worldId            String
+  role               String    @default("TEAM_MEMBER") // "TEAM_ADMIN" | "TEAM_MEMBER"
+  playerId           Int       // Grepolis Player ID
+  playerName         String    // Grepolis Player Name
+  verificationCode   String    // e.g. "GP-742918"
+  verificationStatus String    @default("UNVERIFIED") // "UNVERIFIED" | "VERIFIED"
+  verifiedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  team               Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  world              World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  customRoles        TeamMemberRoleAssignment[]
+
+  @@unique([teamId, userId])
+  @@unique([worldId, playerId]) // One user claim per in-game player per world
+  @@index([worldId, verificationStatus])
+  @@index([teamId, role])
+}
+
+model TeamCustomRole {
+  id          String   @id @default(uuid())
+  teamId      String
+  name        String
+  description String?
+  color       String?  @default("#3B82F6")
+  icon        String?  @default("shield")
+  permissions String[]
+  priority    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignments TeamMemberRoleAssignment[]
+
+  @@unique([teamId, name])
+  @@index([teamId])
+}
+
+model TeamMemberRoleAssignment {
+  id           String         @id @default(uuid())
+  memberId     String
+  customRoleId String
+  assignedAt   DateTime       @default(now())
+
+  member       TeamMember     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  customRole   TeamCustomRole @relation(fields: [customRoleId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, customRoleId])
+  @@index([memberId])
+  @@index([customRoleId])
+}
+
+model Invite {
+  id               String    @id @default(uuid())
+  token            String    @unique
+  teamId           String
+  worldId          String
+  role             String    @default("TEAM_MEMBER") // "TEAM_ADMIN" | "TEAM_MEMBER"
+  targetPlayerName String    // The specific Grepolis player invited
+  createdById      String
+  customRoleIds    String[]  @default([])
+  maxUses          Int       @default(1)
+  usedCount        Int       @default(0)
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+
+  team             Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  world            World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  createdBy        User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([teamId])
+  @@index([worldId])
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  userId      String
+  tokenHash   String   @unique
+  familyId    String   // Tracks rotation lineage for replay attack containment
+  isRevoked   Boolean  @default(false)
+  userAgent   String?
+  ipAddress   String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([tokenHash])
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  userId         String?
+  actorUsername  String?  // Grepolis username of actor
+  action         String   // e.g. "AUTH_LOGIN_SUCCESS", "TOWN_VERIFIED", "TEAM_CREATED", etc.
+  targetResource String?  // e.g. "team:uuid", "world:hu119", "user:Leonidas"
+  ipAddress      String?
+  userAgent      String?
+  status         String   // "SUCCESS" | "WARNING" | "FAILURE"
+  details        Json?
+  createdAt      DateTime @default(now())
+
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
 

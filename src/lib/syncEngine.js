@@ -1,11 +1,27 @@
 import https from 'https';
 import zlib from 'zlib';
-import { prisma } from '@/lib/prisma';
-import { generateGeoJSON } from '@/lib/geojson';
-import { generateScoreboardData } from '@/lib/scoreboard';
+import { prisma } from './prisma.js';
+
+export { prisma };
 
 const CREATE_BATCH_SIZE = 5000;
 const UPDATE_BATCH_SIZE = 50000;
+
+function escapeSqlString(str) {
+  if (str === null || str === undefined) return "''";
+  return "'" + String(str).replace(/\\/g, '\\\\').replace(/'/g, "''").replace(/\0/g, '') + "'";
+}
+
+function sanitizeInt(val, defaultVal = 0) {
+  const num = parseInt(val, 10);
+  return isNaN(num) ? defaultVal : num;
+}
+
+function sanitizeNullableInt(val) {
+  if (val === null || val === undefined || val === '') return 'NULL::int';
+  const num = parseInt(val, 10);
+  return isNaN(num) ? 'NULL::int' : num;
+}
 
 /**
  * Fetch and decompress a Grepolis gzip data file
@@ -43,7 +59,15 @@ export async function fetchAndDecompress(server, filename) {
  */
 export async function syncWorld(worldIdInput, options = {}) {
   const { force = false, skipCacheBuild = false } = options;
-  const worldId = (worldIdInput || 'hu119').toLowerCase().trim();
+  if (!worldIdInput || typeof worldIdInput !== 'string') {
+    throw new Error(`Invalid worldId format: "${worldIdInput}". Must match /^[a-z0-9]+$/`);
+  }
+  const rawId = worldIdInput.toLowerCase().trim();
+
+  if (!/^[a-z0-9]+$/.test(rawId)) {
+    throw new Error(`Invalid worldId format: "${worldIdInput}". Must match /^[a-z0-9]+$/`);
+  }
+  const worldId = rawId;
 
   try {
     // 1. Ensure World entry exists in DB
@@ -133,12 +157,12 @@ export async function syncWorld(worldIdInput, options = {}) {
     ]);
 
     // Map Kills
-    const pAttMap = new Map(pAttRaw.map(row => [parseInt(row[1]), parseInt(row[2])]));
-    const pDefMap = new Map(pDefRaw.map(row => [parseInt(row[1]), parseInt(row[2])]));
-    const pAllMap = new Map(pAllRaw.map(row => [parseInt(row[1]), parseInt(row[2])]));
-    const aAttMap = new Map(aAttRaw.map(row => [parseInt(row[1]), parseInt(row[2])]));
-    const aDefMap = new Map(aDefRaw.map(row => [parseInt(row[1]), parseInt(row[2])]));
-    const aAllMap = new Map(aAllRaw.map(row => [parseInt(row[1]), parseInt(row[2])]));
+    const pAttMap = new Map(pAttRaw.map(row => [parseInt(row[1], 10), parseInt(row[2], 10)]));
+    const pDefMap = new Map(pDefRaw.map(row => [parseInt(row[1], 10), parseInt(row[2], 10)]));
+    const pAllMap = new Map(pAllRaw.map(row => [parseInt(row[1], 10), parseInt(row[2], 10)]));
+    const aAttMap = new Map(aAttRaw.map(row => [parseInt(row[1], 10), parseInt(row[2], 10)]));
+    const aDefMap = new Map(aDefRaw.map(row => [parseInt(row[1], 10), parseInt(row[2], 10)]));
+    const aAllMap = new Map(aAllRaw.map(row => [parseInt(row[1], 10), parseInt(row[2], 10)]));
 
     // 4. Process Alliances
     const newAlliances = [];
@@ -150,22 +174,22 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     for (const row of alliancesRaw) {
       const [idStr, name, pointsStr, townsStr, membersStr, rankStr] = row;
-      const id = parseInt(idStr);
+      const id = parseInt(idStr, 10);
       if (isNaN(id)) continue;
       
       if (seenAllianceIds.has(id)) continue;
       seenAllianceIds.add(id);
 
-      const points = parseInt(pointsStr) || 0;
+      const points = parseInt(pointsStr, 10) || 0;
       const abp = aAttMap.get(id) || 0;
       const dbp = aDefMap.get(id) || 0;
       const allBp = aAllMap.get(id) || 0;
       
       const newData = {
         id, worldId, name, points, 
-        towns: parseInt(townsStr) || 0, 
-        members: parseInt(membersStr) || 0, 
-        rank: parseInt(rankStr) || 0,
+        towns: parseInt(townsStr, 10) || 0, 
+        members: parseInt(membersStr, 10) || 0, 
+        rank: parseInt(rankStr, 10) || 0,
         abp, dbp, allBp
       };
 
@@ -204,14 +228,14 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     for (const row of playersRaw) {
       const [idStr, name, allianceIdStr, pointsStr, rankStr, townsStr] = row;
-      const id = parseInt(idStr);
+      const id = parseInt(idStr, 10);
       if (isNaN(id)) continue;
       
       if (seenPlayerIds.has(id)) continue;
       seenPlayerIds.add(id);
 
-      const points = parseInt(pointsStr) || 0;
-      let allianceId = allianceIdStr ? parseInt(allianceIdStr) : null;
+      const points = parseInt(pointsStr, 10) || 0;
+      let allianceId = allianceIdStr ? parseInt(allianceIdStr, 10) : null;
       if (allianceId && !validAllianceIds.has(allianceId)) allianceId = null;
 
       const abp = pAttMap.get(id) || 0;
@@ -220,8 +244,8 @@ export async function syncWorld(worldIdInput, options = {}) {
 
       const newData = {
         id, worldId, name, allianceId, points, 
-        rank: parseInt(rankStr) || 0, 
-        towns: parseInt(townsStr) || 0,
+        rank: parseInt(rankStr, 10) || 0, 
+        towns: parseInt(townsStr, 10) || 0,
         abp, dbp, allBp
       };
 
@@ -263,14 +287,14 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     for (const row of townsRaw) {
       const [idStr, playerIdStr, name, xStr, yStr, slotStr, pointsStr] = row;
-      const id = parseInt(idStr);
+      const id = parseInt(idStr, 10);
       if (isNaN(id)) continue;
       
       if (seenTownIds.has(id)) continue;
       seenTownIds.add(id);
 
-      const points = parseInt(pointsStr) || 0;
-      let playerId = playerIdStr ? parseInt(playerIdStr) : null;
+      const points = parseInt(pointsStr, 10) || 0;
+      let playerId = playerIdStr ? parseInt(playerIdStr, 10) : null;
       if (playerId && !validPlayerIds.has(playerId)) playerId = null;
 
       const newData = {
@@ -278,9 +302,9 @@ export async function syncWorld(worldIdInput, options = {}) {
         worldId,
         playerId,
         name,
-        islandX: parseInt(xStr) || 0,
-        islandY: parseInt(yStr) || 0,
-        islandSlot: parseInt(slotStr) || 0,
+        islandX: parseInt(xStr, 10) || 0,
+        islandY: parseInt(yStr, 10) || 0,
+        islandSlot: parseInt(slotStr, 10) || 0,
         points
       };
 
@@ -319,22 +343,22 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     for (const row of islandsRaw) {
       const [idStr, xStr, yStr, type, towns, rPlus, rMinus] = row;
-      const id = parseInt(idStr);
+      const id = parseInt(idStr, 10);
       if (isNaN(id)) continue;
 
-      const x = parseInt(xStr);
-      const y = parseInt(yStr);
+      const x = parseInt(xStr, 10);
+      const y = parseInt(yStr, 10);
 
       const distSq = Math.pow(x - 500, 2) + Math.pow(y - 500, 2);
       if (distSq > 250 * 250) continue;
 
-      const availableTowns = parseInt(towns) || 0;
+      const availableTowns = parseInt(towns, 10) || 0;
       if (availableTowns === 0 && !populatedSet.has(`${x},${y}`)) continue;
 
       seenIslandIds.add(id);
       const newData = {
         id, worldId, x, y,
-        type: parseInt(type) || 0, 
+        type: parseInt(type, 10) || 0, 
         availableTowns,
         resourcePlus: rPlus || '', 
         resourceMinus: rMinus || ''
@@ -358,18 +382,18 @@ export async function syncWorld(worldIdInput, options = {}) {
     
     for (const row of conquersRaw) {
       const [townIdStr, tsStr, newPStr, oldPStr, newAStr, oldAStr, pointsStr] = row;
-      const timestampSec = parseInt(tsStr);
+      const timestampSec = parseInt(tsStr, 10);
       if (isNaN(timestampSec)) continue;
       
       if (timestampSec > lastConquestEpoch) {
         newConquers.push({
           worldId,
-          townId: parseInt(townIdStr) || 0,
-          townPoints: parseInt(pointsStr) || 0,
-          oldPlayerId: oldPStr && oldPStr !== '' ? parseInt(oldPStr) : null,
-          newPlayerId: newPStr && newPStr !== '' ? parseInt(newPStr) : null,
-          oldAllianceId: oldAStr && oldAStr !== '' ? parseInt(oldAStr) : null,
-          newAllianceId: newAStr && newAStr !== '' ? parseInt(newAStr) : null,
+          townId: parseInt(townIdStr, 10) || 0,
+          townPoints: parseInt(pointsStr, 10) || 0,
+          oldPlayerId: oldPStr && oldPStr !== '' ? parseInt(oldPStr, 10) : null,
+          newPlayerId: newPStr && newPStr !== '' ? parseInt(newPStr, 10) : null,
+          oldAllianceId: oldAStr && oldAStr !== '' ? parseInt(oldAStr, 10) : null,
+          newAllianceId: newAStr && newAStr !== '' ? parseInt(newAStr, 10) : null,
           timestamp: new Date(timestampSec * 1000)
         });
       }
@@ -418,10 +442,12 @@ export async function syncWorld(worldIdInput, options = {}) {
     if (newTowns.length > 0) chunkArray(newTowns, CREATE_BATCH_SIZE).forEach(chunk => tx.push(prisma.town.createMany({ data: chunk })));
     if (newIslands.length > 0) chunkArray(newIslands, CREATE_BATCH_SIZE).forEach(chunk => tx.push(prisma.island.createMany({ data: chunk })));
 
-    // Updates
+    // Updates with parameterized sanitization
     if (alliancesToUpdate.length > 0) {
       chunkArray(alliancesToUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(a => `(${a.id}, '${worldId}', '${a.name.replace(/'/g, "''")}', ${a.points}, ${a.towns}, ${a.members}, ${a.rank}, ${a.abp}, ${a.dbp}, ${a.allBp})`).join(',');
+        const values = chunk.map(a => 
+          `(${sanitizeInt(a.id)}, '${worldId}', ${escapeSqlString(a.name)}, ${sanitizeInt(a.points)}, ${sanitizeInt(a.towns)}, ${sanitizeInt(a.members)}, ${sanitizeInt(a.rank)}, ${sanitizeInt(a.abp)}, ${sanitizeInt(a.dbp)}, ${sanitizeInt(a.allBp)})`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           UPDATE "Alliance" AS a SET
             "name" = v."name", "points" = v."points", "towns" = v."towns", "members" = v."members", "rank" = v."rank", "abp" = v."abp", "dbp" = v."dbp", "allBp" = v."allBp"
@@ -433,7 +459,9 @@ export async function syncWorld(worldIdInput, options = {}) {
     
     if (playersToUpdate.length > 0) {
       chunkArray(playersToUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(p => `(${p.id}, '${worldId}', '${p.name.replace(/'/g, "''")}', ${p.allianceId ? p.allianceId : 'NULL::int'}, ${p.points}, ${p.rank}, ${p.towns}, ${p.abp}, ${p.dbp}, ${p.allBp})`).join(',');
+        const values = chunk.map(p => 
+          `(${sanitizeInt(p.id)}, '${worldId}', ${escapeSqlString(p.name)}, ${sanitizeNullableInt(p.allianceId)}, ${sanitizeInt(p.points)}, ${sanitizeInt(p.rank)}, ${sanitizeInt(p.towns)}, ${sanitizeInt(p.abp)}, ${sanitizeInt(p.dbp)}, ${sanitizeInt(p.allBp)})`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           UPDATE "Player" AS p SET
             "name" = v."name", "allianceId" = v."allianceId", "points" = v."points", "rank" = v."rank", "towns" = v."towns", "abp" = v."abp", "dbp" = v."dbp", "allBp" = v."allBp"
@@ -445,7 +473,9 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     if (townsToUpdate.length > 0) {
       chunkArray(townsToUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(t => `(${t.id}, '${worldId}', ${t.playerId ? t.playerId : 'NULL::int'}, '${t.name.replace(/'/g, "''")}', ${t.islandX}, ${t.islandY}, ${t.islandSlot}, ${t.points})`).join(',');
+        const values = chunk.map(t => 
+          `(${sanitizeInt(t.id)}, '${worldId}', ${sanitizeNullableInt(t.playerId)}, ${escapeSqlString(t.name)}, ${sanitizeInt(t.islandX)}, ${sanitizeInt(t.islandY)}, ${sanitizeInt(t.islandSlot)}, ${sanitizeInt(t.points)})`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           UPDATE "Town" AS t SET
             "playerId" = v."playerId", "name" = v."name", "islandX" = v."islandX", "islandY" = v."islandY", "islandSlot" = v."islandSlot", "points" = v."points"
@@ -457,7 +487,9 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     if (islandsToUpdate.length > 0) {
       chunkArray(islandsToUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(i => `(${i.id}, '${worldId}', ${i.availableTowns})`).join(',');
+        const values = chunk.map(i => 
+          `(${sanitizeInt(i.id)}, '${worldId}', ${sanitizeInt(i.availableTowns)})`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           UPDATE "Island" AS i SET "availableTowns" = v."availableTowns"
           FROM (VALUES ${values}) AS v("id", "worldId", "availableTowns")
@@ -469,7 +501,9 @@ export async function syncWorld(worldIdInput, options = {}) {
     // History & Conquers
     if (allianceHistory.length > 0) {
       chunkArray(allianceHistory, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(h => `(${h.allianceId}, '${worldId}', ${h.oldPoints}, ${h.newPoints}, ${h.abpDelta}, ${h.dbpDelta}, ${h.allBpDelta}, NOW())`).join(',');
+        const values = chunk.map(h => 
+          `(${sanitizeInt(h.allianceId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, ${sanitizeInt(h.abpDelta)}, ${sanitizeInt(h.dbpDelta)}, ${sanitizeInt(h.allBpDelta)}, NOW())`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           INSERT INTO "AllianceHistory" ("allianceId", "worldId", "oldPoints", "newPoints", "abpDelta", "dbpDelta", "allBpDelta", "timestamp")
           VALUES ${values}
@@ -479,7 +513,9 @@ export async function syncWorld(worldIdInput, options = {}) {
     
     if (playerHistory.length > 0) {
       chunkArray(playerHistory, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(h => `(${h.playerId}, '${worldId}', ${h.oldPoints}, ${h.newPoints}, ${h.abpDelta}, ${h.dbpDelta}, ${h.allBpDelta}, NOW())`).join(',');
+        const values = chunk.map(h => 
+          `(${sanitizeInt(h.playerId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, ${sanitizeInt(h.abpDelta)}, ${sanitizeInt(h.dbpDelta)}, ${sanitizeInt(h.allBpDelta)}, NOW())`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           INSERT INTO "PlayerHistory" ("playerId", "worldId", "oldPoints", "newPoints", "abpDelta", "dbpDelta", "allBpDelta", "timestamp")
           VALUES ${values}
@@ -489,7 +525,9 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     if (townHistory.length > 0) {
       chunkArray(townHistory, UPDATE_BATCH_SIZE).forEach(chunk => {
-        const values = chunk.map(h => `(${h.townId}, '${worldId}', ${h.oldPoints}, ${h.newPoints}, NOW())`).join(',');
+        const values = chunk.map(h => 
+          `(${sanitizeInt(h.townId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, NOW())`
+        ).join(',');
         tx.push(prisma.$executeRawUnsafe(`
           INSERT INTO "TownHistory" ("townId", "worldId", "oldPoints", "newPoints", "timestamp")
           VALUES ${values}
@@ -499,7 +537,70 @@ export async function syncWorld(worldIdInput, options = {}) {
 
     if (newConquers.length > 0) chunkArray(newConquers, CREATE_BATCH_SIZE).forEach(chunk => tx.push(prisma.conquest.createMany({ data: chunk })));
 
-    await prisma.$transaction(tx);
+    // Explicit 60s transaction timeout
+    await prisma.$transaction(tx, {
+      timeout: 60000,
+      maxWait: 10000
+    });
+
+    // 9.5 Automatic In-Game Town Rename Verification Check
+    try {
+      const unverifiedMembers = await prisma.teamMember.findMany({
+        where: {
+          worldId,
+          verificationStatus: 'UNVERIFIED'
+        },
+        include: { user: true }
+      });
+
+      if (unverifiedMembers.length > 0) {
+        for (const member of unverifiedMembers) {
+          const matchingTown = await prisma.town.findFirst({
+            where: {
+              worldId,
+              playerId: member.playerId,
+              name: {
+                contains: member.verificationCode
+              }
+            }
+          });
+
+          if (matchingTown) {
+            await prisma.teamMember.update({
+              where: { id: member.id },
+              data: {
+                verificationStatus: 'VERIFIED',
+                verifiedAt: new Date()
+              }
+            });
+
+            try {
+              const { logAuditEvent } = await import('./auth/audit.js');
+              await logAuditEvent({
+                userId: member.userId,
+                actorUsername: member.user?.username || member.playerName,
+                action: 'TOWN_VERIFIED',
+                targetResource: `town:${matchingTown.id}`,
+                status: 'SUCCESS',
+                details: {
+                  worldId,
+                  playerId: member.playerId,
+                  townId: matchingTown.id,
+                  townName: matchingTown.name,
+                  verificationCode: member.verificationCode,
+                  method: 'SYNC_AUTOMATIC'
+                }
+              });
+            } catch (auditErr) {
+              console.warn('[SyncEngine] Failed to log audit event for town verification:', auditErr);
+            }
+            console.log(`[SyncEngine] Verified player "${member.playerName}" on world [${worldId}] via town rename "${matchingTown.name}"!`);
+          }
+        }
+      }
+    } catch (verifyErr) {
+      console.warn(`[SyncEngine] Warning: Automatic town verification scan failed for world ${worldId}:`, verifyErr.message);
+    }
 
     const syncTime = new Date();
 
@@ -510,6 +611,8 @@ export async function syncWorld(worldIdInput, options = {}) {
     if (!skipCacheBuild) {
       try {
         console.log(`[SyncEngine] Generating atomic Scoreboard & GeoJSON caches for world [${worldId}]...`);
+        const { generateScoreboardData } = await import('./scoreboard.js');
+        const { generateGeoJSON } = await import('./geojson.js');
         const [scoreboardData, geoJsonData] = await Promise.all([
           generateScoreboardData(worldId),
           generateGeoJSON(worldId)
@@ -535,8 +638,8 @@ export async function syncWorld(worldIdInput, options = {}) {
     console.log(`[SyncEngine] World ${worldId} sync complete! (+${newPlayers.length} new players, +${newTowns.length} new towns)`);
 
     return { 
-      success: true,
-      worldId,
+      success: true, 
+      worldId, 
       lastSync: syncTime,
       stats: {
         alliances: newAlliances.length,
@@ -581,18 +684,18 @@ export async function syncAllActiveWorlds(options = {}) {
       results.push(res);
     }
 
-    return {
-      success: true,
+    return { 
+      success: true, 
       timestamp: new Date(),
       totalWorlds: activeWorlds.length,
-      results
+      results 
     };
   } catch (error) {
     console.error('[SyncEngine] Error in syncAllActiveWorlds:', error);
-    return {
-      success: false,
+    return { 
+      success: false, 
       timestamp: new Date(),
-      error: error.message
+      error: error.message 
     };
   }
 }

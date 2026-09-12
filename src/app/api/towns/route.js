@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+import { requireAuth } from '@/lib/auth/rbac';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
@@ -42,6 +44,39 @@ export async function PUT(request) {
     const id = parseInt(townId, 10);
     if (isNaN(id)) {
       return NextResponse.json({ error: 'Invalid townId' }, { status: 400 });
+    }
+
+    const normalizedWorldId = worldId.toLowerCase();
+
+    // Check town existence
+    const town = await prisma.town.findUnique({
+      where: {
+        id_worldId: {
+          id,
+          worldId: normalizedWorldId
+        }
+      }
+    });
+
+    if (!town) {
+      return NextResponse.json({ error: 'Town not found' }, { status: 404 });
+    }
+
+    // Require authorization: must be Global Admin, Team Admin, or owner of the town
+    const auth = await requireAuth(request, { worldId: normalizedWorldId });
+    if (!auth.authorized) {
+      return auth.response;
+    }
+
+    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
+    const isTeamAdmin = auth.member?.role === 'TEAM_ADMIN';
+    const isOwner = auth.member?.playerId === town.playerId;
+
+    if (!isGlobalAdmin && !isTeamAdmin && !isOwner) {
+      return NextResponse.json(
+        { error: 'Forbidden: You can only customize towns belonging to your verified account' },
+        { status: 403 }
+      );
     }
 
     const updateData = {};

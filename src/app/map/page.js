@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import Map, { Source, Layer, Popup } from "react-map-gl/maplibre";
+import MapGL, { Source, Layer, Popup } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { 
@@ -151,9 +151,9 @@ export default function WorldMap() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [mapProcessing, setMapProcessing] = useState(true);
+  const [hoverInfo, setHoverInfo] = useState(null);
   const hoverInfoRef = useRef(null);
   const cursorGridRef = useRef(null);
-  const [hoverUpdate, setHoverUpdate] = useState(0); // incremented only when hover feature changes
   const [worldStats, setWorldStats] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [customColors, setCustomColors] = useState({});
@@ -175,6 +175,7 @@ export default function WorldMap() {
   const [viewMode, setViewMode] = useState('geographic');
   const [politicalOpacity, setPoliticalOpacity] = useState(0.35);
   const [showContestedFrontlines, setShowContestedFrontlines] = useState(true);
+  const [showFrontlines, setShowFrontlines] = useState(true);
   const [highlightedAllianceVoronoi, setHighlightedAllianceVoronoi] = useState(null);
 
   // Tactical Intel Radar Controls (Milestone 2)
@@ -253,7 +254,7 @@ export default function WorldMap() {
     }
   }, [activeWorldId]);
 
-  // Load alliance coalitions for current world
+  // Load alliance coalitions for current world and auto-seed member colors
   useEffect(() => {
     if (!activeWorldId) return;
     fetch(`/api/world/coalitions?world=${activeWorldId}`)
@@ -261,12 +262,40 @@ export default function WorldMap() {
       .then(result => {
         if (result.success && Array.isArray(result.coalitions)) {
           setCoalitions(result.coalitions);
+          // Auto-seed coalition colors to all member alliances
+          setCustomColors(prev => {
+            const next = { ...prev };
+            result.coalitions.forEach(c => {
+              if (!c?.color) return;
+              (c.alliances || []).forEach(m => {
+                const name = typeof m === 'string' ? m : m?.name;
+                if (name && !next[name]) next[name] = c.color;
+              });
+              if (!next[c.name]) next[c.name] = c.color;
+            });
+            return next;
+          });
         }
       })
       .catch(() => {
         try {
           const cached = localStorage.getItem(`grepotools_coalitions_${activeWorldId}`);
-          if (cached) setCoalitions(JSON.parse(cached));
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            setCoalitions(parsed);
+            setCustomColors(prev => {
+              const next = { ...prev };
+              parsed.forEach(c => {
+                if (!c?.color) return;
+                (c.alliances || []).forEach(m => {
+                  const name = typeof m === 'string' ? m : m?.name;
+                  if (name && !next[name]) next[name] = c.color;
+                });
+                if (!next[c.name]) next[c.name] = c.color;
+              });
+              return next;
+            });
+          }
         } catch (e) {}
       });
 
@@ -283,6 +312,19 @@ export default function WorldMap() {
 
   const handleSaveCoalitions = async (newCoalitions) => {
     setCoalitions(newCoalitions);
+    // Auto-propagate coalition colors to all member alliances
+    setCustomColors(prev => {
+      const next = { ...prev };
+      newCoalitions.forEach(c => {
+        if (!c?.color) return;
+        (c.alliances || []).forEach(m => {
+          const name = typeof m === 'string' ? m : m?.name;
+          if (name) next[name] = c.color;
+        });
+        next[c.name] = c.color;
+      });
+      return next;
+    });
     try {
       localStorage.setItem(`grepotools_coalitions_${activeWorldId}`, JSON.stringify(newCoalitions));
       const res = await fetch('/api/world/coalitions', {
@@ -328,36 +370,70 @@ export default function WorldMap() {
     return buildCoalitionLookup(coalitions);
   }, [coalitions]);
 
+  // Active effective color resolver (customColors -> coalition color -> fallback)
+  const getEffectiveAllianceColor = useCallback((allianceName, allianceId, fallbackColor = '#94a3b8') => {
+    if (!allianceName || allianceName === 'None' || allianceName === 'Ghost Town') return fallbackColor;
+    if (customColors[allianceName]) return customColors[allianceName];
+
+    const normName = allianceName.trim().toLowerCase();
+    const coalition = coalitionLookup.get(normName) || (allianceId != null ? coalitionLookup.get(String(allianceId)) : null);
+    if (coalition) {
+      if (customColors[coalition.name]) return customColors[coalition.name];
+      if (coalition.color) return coalition.color;
+    }
+
+    return fallbackColor;
+  }, [customColors, coalitionLookup]);
+
+  // Island Sovereignty, Cleanliness & Frontline Classification
+  const islandClassification = useMemo(() => {
+    if (!rawTowns.length) return null;
+    return classifyIslands(partitionedFeatures.islands, rawTowns, {
+      coalitions,
+      customColors,
+      minCleanTowns: 1
+    });
+  }, [partitionedFeatures.islands, rawTowns, coalitions, customColors]);
+
   // Islands feature collection
   const islandsData = useMemo(() => {
     if (!partitionedFeatures.islands.length) return null;
     let features = partitionedFeatures.islands;
+    const summaryMap = new Map((islandClassification?.islandSummaryList || []).map(s => [s.islandKey, s]));
     
     features = features.map(f => {
-      const ally = f.properties.dominantAlliance;
-      let islandColor = f.properties.islandColor;
+      const ix = f.properties.x;
+      const iy = f.properties.y;
+      const key = `${ix}_${iy}`;
+      const sum = summaryMap.get(key);
+
+      const ally = sum?.dominantAlliance || f.properties.dominantAlliance;
       let dominantAlliance = ally;
+      let islandColor = f.properties.islandColor;
 
       if (ally && ally !== "None") {
         const normName = ally.trim().toLowerCase();
         const coalition = coalitionLookup.get(normName);
         if (coalition) {
           dominantAlliance = coalition.name;
-          islandColor = coalition.color || '#10b981';
         }
-        if (customColors[dominantAlliance]) {
-          islandColor = customColors[dominantAlliance];
-        } else if (customColors[ally]) {
-          islandColor = customColors[ally];
-        }
+        islandColor = sum?.dominantColor || getEffectiveAllianceColor(dominantAlliance, null, coalition?.color || f.properties.islandColor);
       }
 
       return {
         ...f,
         properties: {
           ...f.properties,
+          islandKey: key,
           islandColor,
-          dominantAlliance
+          dominantAlliance,
+          status: sum?.status || 'NEUTRAL',
+          isFrontline: Boolean(sum?.isFrontline),
+          threatLevel: sum?.threatLevel || 'NONE',
+          frontlineRival: sum?.frontlineRival || null,
+          isSafeCore: Boolean(sum?.isSafeCore),
+          dominantCount: sum?.dominantCount || 0,
+          enemyCount: sum?.enemyCount || 0
         }
       };
     });
@@ -369,35 +445,51 @@ export default function WorldMap() {
       if (!aEmpty && bEmpty) return 1;
       return 0;
     });
-     return { type: 'FeatureCollection', features };
-  }, [partitionedFeatures.islands, customColors, coalitionLookup]);
+    return { type: 'FeatureCollection', features };
+  }, [partitionedFeatures.islands, customColors, coalitionLookup, islandClassification, getEffectiveAllianceColor]);
 
   // Island Vector Polygon FeatureCollections (generated from Point features + outline data)
   const islandPolygonsData = useMemo(() => {
     if (!partitionedFeatures.islands.length) return null;
     let features = partitionedFeatures.islands;
+    const summaryMap = new Map((islandClassification?.islandSummaryList || []).map(s => [s.islandKey, s]));
 
-    // Apply custom alliance colors and coalition colors
+    // Apply custom alliance colors and coalition colors & tactical frontline metrics
     features = features.map(f => {
-      const ally = f.properties.dominantAlliance;
-      let islandColor = f.properties.islandColor;
+      const ix = f.properties.x;
+      const iy = f.properties.y;
+      const key = `${ix}_${iy}`;
+      const sum = summaryMap.get(key);
+
+      const ally = sum?.dominantAlliance || f.properties.dominantAlliance;
       let dominantAlliance = ally;
+      let islandColor = f.properties.islandColor;
 
       if (ally && ally !== "None") {
         const normName = ally.trim().toLowerCase();
         const coalition = coalitionLookup.get(normName);
         if (coalition) {
           dominantAlliance = coalition.name;
-          islandColor = coalition.color || '#10b981';
         }
-        if (customColors[dominantAlliance]) {
-          islandColor = customColors[dominantAlliance];
-        } else if (customColors[ally]) {
-          islandColor = customColors[ally];
-        }
+        islandColor = sum?.dominantColor || getEffectiveAllianceColor(dominantAlliance, null, coalition?.color || f.properties.islandColor);
       }
 
-      return { ...f, properties: { ...f.properties, islandColor, dominantAlliance } };
+      return {
+        ...f,
+        properties: {
+          ...f.properties,
+          islandKey: key,
+          islandColor,
+          dominantAlliance,
+          status: sum?.status || 'NEUTRAL',
+          isFrontline: Boolean(sum?.isFrontline),
+          threatLevel: sum?.threatLevel || 'NONE',
+          frontlineRival: sum?.frontlineRival || null,
+          isSafeCore: Boolean(sum?.isSafeCore),
+          dominantCount: sum?.dominantCount || 0,
+          enemyCount: sum?.enemyCount || 0
+        }
+      };
     });
 
     const polygonFeatures = features
@@ -430,7 +522,7 @@ export default function WorldMap() {
 
     if (polygonFeatures.length === 0) return null;
     return { type: 'FeatureCollection', features: polygonFeatures };
-  }, [partitionedFeatures.islands, customColors, coalitionLookup]);
+  }, [partitionedFeatures.islands, customColors, coalitionLookup, islandClassification, getEffectiveAllianceColor]);
 
   // Island inner contour LineStrings for terrain detail at high zoom
   const islandContoursData = useMemo(() => {
@@ -531,33 +623,49 @@ export default function WorldMap() {
       towns = towns.filter(t => t.properties.isGhost || !t.properties.player || t.properties.player === 'Ghost Town');
     }
 
-    // Apply highlights
-    if (Object.keys(highlightedPlayers).length > 0 || Object.keys(highlightedAlliances).length > 0) {
-      towns = towns.map(t => {
-        const pName = t.properties.player;
-        const aName = t.properties.alliance;
-        let hColor = null;
+    const hasHighlights = Object.keys(highlightedPlayers).length > 0 || Object.keys(highlightedAlliances).length > 0;
+
+    // Apply coalition colors, customColors, and highlights across ALL towns
+    towns = towns.map(t => {
+      const pName = t.properties.player;
+      const aName = t.properties.alliance;
+      const aId = t.properties.allianceId;
+      const isGhost = t.properties.isGhost || !pName || pName === 'Ghost Town';
+
+      let effectiveTownColor = t.properties.townColor;
+      if (!isGhost && aName && aName !== 'None') {
+        effectiveTownColor = getEffectiveAllianceColor(aName, aId, t.properties.townColor);
+      }
+
+      let hColor = null;
+      if (hasHighlights) {
         if (highlightedPlayers[pName]) hColor = highlightedPlayers[pName];
         else if (highlightedAlliances[aName]) hColor = highlightedAlliances[aName];
-        else if (customColors[aName]) {
-          return { ...t, properties: { ...t.properties, townColor: customColors[aName] } };
-        }
+      }
 
-        if (hColor) {
-          return { ...t, properties: { ...t.properties, highlightColor: hColor } };
-        }
-        return t;
+      if (hColor || effectiveTownColor !== t.properties.townColor) {
+        return {
+          ...t,
+          properties: {
+            ...t.properties,
+            townColor: effectiveTownColor,
+            ...(hColor ? { highlightColor: hColor } : {})
+          }
+        };
+      }
+      return t;
+    });
+
+    if (hasHighlights) {
+      towns.sort((a, b) => {
+        if (a.properties.highlightColor && !b.properties.highlightColor) return 1;
+        if (!a.properties.highlightColor && b.properties.highlightColor) return -1;
+        return 0;
       });
     }
 
-    towns.sort((a, b) => {
-      if (a.properties.highlightColor && !b.properties.highlightColor) return 1;
-      if (!a.properties.highlightColor && b.properties.highlightColor) return -1;
-      return 0;
-    });
-
     return { type: 'FeatureCollection', features: towns };
-  }, [partitionedFeatures.towns, showGhostsOnly, highlightedPlayers, highlightedAlliances, customColors]);
+  }, [partitionedFeatures.towns, showGhostsOnly, highlightedPlayers, highlightedAlliances, getEffectiveAllianceColor]);
 
   // Voronoi Political Territory GeoJSON (Milestone 1)
   const voronoiData = useMemo(() => {
@@ -575,16 +683,6 @@ export default function WorldMap() {
     if (!rawTowns.length || !voronoiData) return null;
     return computeContestedFrontlines(rawTowns, voronoiData, { coalitions });
   }, [rawTowns, voronoiData, coalitions]);
-
-  // Island Sovereignty & Cleanliness Classification
-  const islandClassification = useMemo(() => {
-    if (!rawTowns.length) return null;
-    return classifyIslands(partitionedFeatures.islands, rawTowns, {
-      coalitions,
-      customColors,
-      minCleanTowns: 1
-    });
-  }, [partitionedFeatures.islands, rawTowns, coalitions, customColors]);
 
   // Continuous Maritime Ocean Territorial Basins, Frontlines, and Island Halos
   const maritimeTerritoryData = useMemo(() => {
@@ -631,13 +729,13 @@ export default function WorldMap() {
       return {
         allianceId: a.id,
         allianceName: a.name,
-        color: customColors[a.name] || a.color || '#8b5cf6',
+        color: getEffectiveAllianceColor(a.name, a.id, a.color || '#8b5cf6'),
         townCount: aTowns,
         dominantShare: aTowns / totalEligible,
         points: a.points
       };
     }).sort((a, b) => b.townCount - a.townCount);
-  }, [rawTowns, topAlliances, customColors]);
+  }, [rawTowns, topAlliances, getEffectiveAllianceColor]);
 
   // Intel Radar Overlay GeoJSON Collections (Milestone 2)
   const radarData = useMemo(() => {
@@ -806,6 +904,9 @@ export default function WorldMap() {
           isRouteToolActive={isRouteToolActive}
           onToggleEmptySlots={() => setShowEmptySlots(prev => !prev)}
           showEmptySlots={showEmptySlots}
+          onToggleFrontlines={() => setShowFrontlines(prev => !prev)}
+          showFrontlines={showFrontlines}
+          frontlineCount={islandClassification?.frontlineIslandsGeoJSON?.features?.length || 0}
           radarFilters={radarFilters}
           onRadarChange={setRadarFilters}
           radarCounts={{
@@ -855,7 +956,7 @@ export default function WorldMap() {
           </div>
         )}
 
-        <Map
+        <MapGL
           ref={mapRef}
           mapLibre={maplibregl}
           style={{ width: "100%", height: "100%", position: "absolute", left: 0, top: 0 }}
@@ -888,7 +989,7 @@ export default function WorldMap() {
           onMouseLeave={() => {
             if (mapRef.current) mapRef.current.getCanvas().style.cursor = "";
             hoverInfoRef.current = null;
-            setHoverUpdate(c => c + 1);
+            setHoverInfo(null);
           }}
           onMouseMove={(e) => {
             const lng = e.lngLat.lng;
@@ -907,12 +1008,13 @@ export default function WorldMap() {
               const prevFeatureId = hoverInfoRef.current?.feature?.properties?.id;
               if (features && features.length > 0) {
                 const newFeatureId = features[0].properties?.id;
-                hoverInfoRef.current = { feature: features[0], x: pointX, y: pointY, lngLat: lngLat };
+                const newHover = { feature: features[0], x: pointX, y: pointY, lngLat: lngLat };
+                hoverInfoRef.current = newHover;
                 // Only trigger re-render when hovered feature changes
-                if (newFeatureId !== prevFeatureId) setHoverUpdate(c => c + 1);
+                if (newFeatureId !== prevFeatureId) setHoverInfo(newHover);
               } else if (hoverInfoRef.current) {
                 hoverInfoRef.current = null;
-                setHoverUpdate(c => c + 1);
+                setHoverInfo(null);
               }
 
               // Update cursor grid DOM directly to avoid re-render
@@ -1481,11 +1583,84 @@ export default function WorldMap() {
                 }}
               />
 
-              {/* Outer glow effect - wider blurred line */}
+              {/* Contested Island Battleground Hazard Glow (Zoom >= 4.8) */}
+              <Layer
+                id="island-contested-glow"
+                type="line"
+                minzoom={4.8}
+                filter={["==", ["get", "status"], "CONTESTED"]}
+                paint={{
+                  "line-color": "#f59e0b",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 3.0,
+                    7.0, 6.0,
+                    10.0, 9.0
+                  ],
+                  "line-opacity": 0.85,
+                  "line-blur": 2.5
+                }}
+              />
+              <Layer
+                id="island-contested-border"
+                type="line"
+                minzoom={4.8}
+                filter={["==", ["get", "status"], "CONTESTED"]}
+                paint={{
+                  "line-color": "#ef4444",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 1.2,
+                    7.0, 2.2,
+                    10.0, 3.2
+                  ],
+                  "line-opacity": 0.95,
+                  "line-dasharray": [3, 1.5]
+                }}
+              />
+
+              {/* Frontline Island Combat Perimeter (Zoom >= 4.8) */}
+              <Layer
+                id="island-frontline-glow"
+                type="line"
+                minzoom={4.8}
+                filter={["all", ["==", ["get", "isFrontline"], true], ["!=", ["get", "status"], "CONTESTED"]]}
+                paint={{
+                  "line-color": "#f43f5e",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 2.5,
+                    7.0, 5.0,
+                    10.0, 8.0
+                  ],
+                  "line-opacity": 0.65,
+                  "line-blur": 2.0
+                }}
+              />
+              <Layer
+                id="island-frontline-border"
+                type="line"
+                minzoom={4.8}
+                filter={["all", ["==", ["get", "isFrontline"], true], ["!=", ["get", "status"], "CONTESTED"]]}
+                paint={{
+                  "line-color": "#f43f5e",
+                  "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 0.8,
+                    7.0, 1.6,
+                    10.0, 2.4
+                  ],
+                  "line-opacity": 0.9,
+                  "line-dasharray": [4, 2]
+                }}
+              />
+
+              {/* Outer glow effect - wider blurred line for standard islands */}
               <Layer
                 id="island-outline-glow"
                 type="line"
                 minzoom={4.8}
+                filter={["all", ["!=", ["get", "status"], "CONTESTED"], ["!=", ["get", "isFrontline"], true]]}
                 paint={{
                   "line-color": "#38bdf8",
                   "line-width": [
@@ -1517,8 +1692,20 @@ export default function WorldMap() {
                 paint={{
                   "line-color": [
                     "interpolate", ["linear"], ["zoom"],
-                    4.8, "#64748b",
-                    6.0, "#38bdf8"
+                    4.8, [
+                      "case",
+                      ["==", ["get", "status"], "CONTESTED"], "#ef4444",
+                      ["==", ["get", "isFrontline"], true], "#f43f5e",
+                      ["==", ["get", "isSafeCore"], true], "#10b981",
+                      "#64748b"
+                    ],
+                    6.0, [
+                      "case",
+                      ["==", ["get", "status"], "CONTESTED"], "#ef4444",
+                      ["==", ["get", "isFrontline"], true], "#f43f5e",
+                      ["==", ["get", "isSafeCore"], true], "#10b981",
+                      "#38bdf8"
+                    ]
                   ],
                   "line-width": [
                     "interpolate", ["linear"], ["zoom"],
@@ -1599,6 +1786,45 @@ export default function WorldMap() {
                     7.0, 0.5,
                     9.0, 0.65
                   ]
+                }}
+              />
+            </Source>
+          )}
+
+          {/* Tactical Frontline & Contested Island Badges (Zoom 5.0 to 8.5) */}
+          {showFrontlines && islandClassification?.frontlineIslandsGeoJSON?.features?.length > 0 && (
+            <Source id="frontline-islands-source" type="geojson" data={islandClassification.frontlineIslandsGeoJSON}>
+              <Layer
+                id="frontline-islands-badge"
+                type="symbol"
+                minzoom={5.0}
+                maxzoom={8.5}
+                layout={{
+                  "text-field": ["get", "combatLabel"],
+                  "text-font": ["Noto Sans Regular"],
+                  "text-size": [
+                    "interpolate", ["linear"], ["zoom"],
+                    5.0, 9,
+                    6.5, 11,
+                    8.5, 12
+                  ],
+                  "text-offset": [0, -2.4],
+                  "text-anchor": "bottom",
+                  "text-optional": true,
+                  "text-allow-overlap": false
+                }}
+                paint={{
+                  "text-color": [
+                    "case",
+                    ["==", ["get", "status"], "CONTESTED"], "#fef08a",
+                    "#fecdd3"
+                  ],
+                  "text-halo-color": [
+                    "case",
+                    ["==", ["get", "status"], "CONTESTED"], "#78350f",
+                    "#4c0519"
+                  ],
+                  "text-halo-width": 2.5
                 }}
               />
             </Source>
@@ -1686,31 +1912,31 @@ export default function WorldMap() {
             </Source>
           )}
 
-          {/* Inter-Alliance Maritime Frontline Clashes */}
-          {maritimeTerritoryData.frontlinesGeoJSON.features.length > 0 && (
+          {/* Inter-Alliance Maritime Frontline Demarcation Barriers */}
+          {showFrontlines && maritimeTerritoryData.frontlinesGeoJSON.features.length > 0 && (
             <Source id="maritime-frontlines-source" type="geojson" data={maritimeTerritoryData.frontlinesGeoJSON}>
               <Layer
                 id="maritime-frontline-glow"
                 type="line"
                 minzoom={2.0}
-                maxzoom={6.5}
+                maxzoom={6.8}
                 paint={{
                   "line-color": "#f43f5e",
-                  "line-width": 5,
+                  "line-width": 4,
                   "line-opacity": 0.45,
-                  "line-blur": 3
+                  "line-blur": 2.5
                 }}
               />
               <Layer
                 id="maritime-frontline-line"
                 type="line"
                 minzoom={2.0}
-                maxzoom={6.5}
+                maxzoom={6.8}
                 paint={{
                   "line-color": "#fda4af",
                   "line-width": 2,
                   "line-opacity": 0.9,
-                  "line-dasharray": [3, 1]
+                  "line-dasharray": [4, 2]
                 }}
               />
             </Source>
@@ -1755,10 +1981,11 @@ export default function WorldMap() {
                   ],
                   "circle-color": ["get", "haloColor"],
                   "circle-stroke-width": [
-                    "match", ["get", "status"],
-                    "CLEAN", 1.8,
-                    "INFILTRATED", 2.5,
-                    "CONTESTED", 2.0,
+                    "case",
+                    ["==", ["get", "status"], "CONTESTED"], 3.0,
+                    ["==", ["get", "status"], "INFILTRATED"], 2.6,
+                    ["==", ["get", "isFrontline"], true], 2.4,
+                    ["==", ["get", "status"], "CLEAN"], 1.8,
                     1.0
                   ],
                   "circle-stroke-color": ["get", "strokeColor"],
@@ -1965,20 +2192,20 @@ export default function WorldMap() {
           <AnimatedTroopLayer transits={activeTransits} />
 
           {/* Hover Tooltip */}
-          {hoverInfoRef.current && (
+          {hoverInfo && (
             <Popup
-              longitude={hoverInfoRef.current.lngLat.lng}
-              latitude={hoverInfoRef.current.lngLat.lat}
+              longitude={hoverInfo.lngLat.lng}
+              latitude={hoverInfo.lngLat.lat}
               closeButton={false}
               closeOnClick={false}
               anchor="bottom"
               offset={14}
             >
               <div className="glass-panel" style={{ padding: '1rem', minWidth: '220px', borderRadius: '8px' }}>
-                {(hoverInfoRef.current.feature.properties.renderType === 'town' || hoverInfoRef.current.feature.properties.townId) && (
+                {(hoverInfo.feature.properties.renderType === 'town' || hoverInfo.feature.properties.townId) && (
                   <>
                     <div className="flex items-center justify-between gap-2" style={{ marginBottom: '0.35rem' }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '1.05rem', color: '#f8fafc' }}>{hoverInfoRef.current.feature.properties.name || hoverInfoRef.current.feature.properties.townName}</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '1.05rem', color: '#f8fafc' }}>{hoverInfo.feature.properties.name || hoverInfo.feature.properties.townName}</div>
                       <span style={{ 
                         fontSize: '0.68rem', 
                         padding: '2px 6px', 
@@ -1988,118 +2215,123 @@ export default function WorldMap() {
                         fontWeight: 'bold',
                         border: '1px solid rgba(59, 130, 246, 0.4)'
                       }}>
-                        {['', 'Stage 1 • Hamlet', 'Stage 2 • Village', 'Stage 3 • Town', 'Stage 4 • City', 'Stage 5 • Metropolis'][hoverInfoRef.current.feature.properties.stage || 1]}
+                        {['', 'Stage 1 • Hamlet', 'Stage 2 • Village', 'Stage 3 • Town', 'Stage 4 • City', 'Stage 5 • Metropolis'][hoverInfo.feature.properties.stage || 1]}
                       </span>
                     </div>
-                    {hoverInfoRef.current.feature.properties.player && (
-                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Player: <span style={{ color: 'white', fontWeight: '500' }}>{hoverInfoRef.current.feature.properties.player}</span></div>
+                    {hoverInfo.feature.properties.player && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Player: <span style={{ color: 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.player}</span></div>
                     )}
-                    {hoverInfoRef.current.feature.properties.alliance && (
-                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Alliance: <span style={{ color: hoverInfoRef.current.feature.properties.townColor || 'white', fontWeight: '500' }}>{hoverInfoRef.current.feature.properties.alliance}</span></div>
+                    {hoverInfo.feature.properties.alliance && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Alliance: <span style={{ color: hoverInfo.feature.properties.townColor || 'white', fontWeight: '500' }}>{hoverInfo.feature.properties.alliance}</span></div>
                     )}
                     
                     <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '0.8rem' }}>
                       <span style={{ color: '#10b981', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                        {Number(hoverInfoRef.current.feature.properties.points || 0).toLocaleString()} pts
+                        {Number(hoverInfo.feature.properties.points || 0).toLocaleString()} pts
                       </span>
                       <span style={{ color: '#94a3b8' }}>
-                        Slot #{hoverInfoRef.current.feature.properties.islandSlot ?? '0'} ({String(hoverInfoRef.current.feature.properties.dir || 'NW').toUpperCase()})
+                        Slot #{hoverInfo.feature.properties.islandSlot ?? '0'} ({String(hoverInfo.feature.properties.dir || 'NW').toUpperCase()})
                       </span>
                     </div>
 
                     {/* Radar Context Information */}
-                    {hoverInfoRef.current.feature.properties.indicatorType === 'ghost_skull' && (
+                    {hoverInfo.feature.properties.indicatorType === 'ghost_skull' && (
                       <div className="mt-2 pt-2 border-t border-cyan-500/30 text-[11px] bg-cyan-950/30 p-1.5 rounded-lg border border-cyan-500/20">
                         <div className="flex justify-between text-cyan-300 font-bold">
                           <span>👻 Ghost Town</span>
-                          <span className="font-mono">~{hoverInfoRef.current.feature.properties.estimatedVacancyDays}d vacant</span>
+                          <span className="font-mono">~{hoverInfo.feature.properties.estimatedVacancyDays}d vacant</span>
                         </div>
                       </div>
                     )}
 
-                    {hoverInfoRef.current.feature.properties.isContested && (
+                    {hoverInfo.feature.properties.isContested && (
                       <div className="mt-2 pt-2 border-t border-rose-500/30 text-[11px] bg-rose-950/30 p-1.5 rounded-lg border border-rose-500/20">
                         <div className="flex justify-between text-rose-300 font-bold">
                           <span>⚔️ Active Siege Hotspot</span>
-                          <span className="font-mono">{hoverInfoRef.current.feature.properties.recentConquestCount} conquests</span>
+                          <span className="font-mono">{hoverInfo.feature.properties.recentConquestCount} conquests</span>
                         </div>
                       </div>
                     )}
 
-                    {hoverInfoRef.current.feature.properties.farmRating && (
+                    {hoverInfo.feature.properties.farmRating && (
                       <div className="mt-2 pt-2 border-t border-amber-500/30 text-[11px] bg-amber-950/30 p-1.5 rounded-lg border border-amber-500/20">
                         <div className="flex justify-between text-amber-300 font-bold">
-                          <span>💤 Inactive Farm [{hoverInfoRef.current.feature.properties.farmRating}]</span>
-                          <span className="font-mono">{hoverInfoRef.current.feature.properties.momentumDelta} pts</span>
+                          <span>💤 Inactive Farm [{hoverInfo.feature.properties.farmRating}]</span>
+                          <span className="font-mono">{hoverInfo.feature.properties.momentumDelta} pts</span>
                         </div>
                       </div>
                     )}
                   </>
                 )}
-                {hoverInfoRef.current.feature.properties.isBeachhead && (
+                {hoverInfo.feature.properties.isBeachhead && (
                   <div className="p-2 rounded-lg bg-rose-950/60 border border-rose-500/40 text-xs">
                     <div className="text-rose-300 font-bold flex items-center gap-1">
                       ⚠️ ENEMY BEACHHEAD BREACH
                     </div>
                     <div className="text-slate-300 text-[11px] mt-1 font-medium">
-                      Town: <span className="text-white font-bold">{hoverInfoRef.current.feature.properties.name}</span>
+                      Town: <span className="text-white font-bold">{hoverInfo.feature.properties.name}</span>
                     </div>
                     <div className="text-slate-400 text-[11px]">
-                      Player: <span className="text-slate-200">{hoverInfoRef.current.feature.properties.player}</span>
+                      Player: <span className="text-slate-200">{hoverInfo.feature.properties.player}</span>
                     </div>
                     <div className="text-slate-400 text-[11px]">
-                      Enemy Alliance: <span className="text-rose-400 font-bold">{hoverInfoRef.current.feature.properties.enemyAlliance}</span>
+                      Enemy Alliance: <span className="text-rose-400 font-bold">{hoverInfo.feature.properties.enemyAlliance}</span>
                     </div>
                     <div className="text-slate-400 text-[11px]">
-                      Island Controlled By: <span className="text-emerald-400 font-bold">{hoverInfoRef.current.feature.properties.hostAlliance}</span>
+                      Island Controlled By: <span className="text-emerald-400 font-bold">{hoverInfo.feature.properties.hostAlliance}</span>
                     </div>
                   </div>
                 )}
-                {(hoverInfoRef.current.feature.properties.renderType === 'island' || hoverInfoRef.current.feature.properties.renderType === 'rock' || hoverInfoRef.current.feature.properties.islandKey) && (
+                {(hoverInfo.feature.properties.renderType === 'island' || hoverInfo.feature.properties.renderType === 'rock' || hoverInfo.feature.properties.islandKey) && (
                   <>
                     <div style={{ fontWeight: 'bold', fontSize: '1.05rem', marginBottom: '0.25rem', color: '#f8fafc' }}>
-                      {hoverInfoRef.current.feature.properties.renderType === 'island' ? 'Island' : 'Rock'} ({hoverInfoRef.current.feature.properties.x}, {hoverInfoRef.current.feature.properties.y})
+                      {hoverInfo.feature.properties.renderType === 'island' ? 'Island' : 'Rock'} ({hoverInfo.feature.properties.x}, {hoverInfo.feature.properties.y})
                     </div>
-                    {hoverInfoRef.current.feature.properties.status && (
-                      <div className="mb-2">
-                        {hoverInfoRef.current.feature.properties.status === 'CLEAN' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    {hoverInfo.feature.properties.status && (
+                      <div className="mb-2 flex flex-col gap-1">
+                        {hoverInfo.feature.properties.status === 'CLEAN' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 w-fit">
                             🟢 100% CLEAN SAFE HAVEN
                           </span>
                         )}
-                        {hoverInfoRef.current.feature.properties.status === 'INFILTRATED' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                            ⚠️ INFILTRATED ({hoverInfoRef.current.feature.properties.enemyCount} ENEMY BREACH)
+                        {hoverInfo.feature.properties.status === 'INFILTRATED' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 w-fit">
+                            ⚠️ INFILTRATED ({hoverInfo.feature.properties.enemyCount} ENEMY BREACH)
                           </span>
                         )}
-                        {hoverInfoRef.current.feature.properties.status === 'CONTESTED' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                            ⚔️ CONTESTED FRONTLINE
+                        {hoverInfo.feature.properties.status === 'CONTESTED' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 w-fit">
+                            ⚔️ CONTESTED BATTLEGROUND ({hoverInfo.feature.properties.dominantCount} vs {hoverInfo.feature.properties.enemyCount})
+                          </span>
+                        )}
+                        {hoverInfo.feature.properties.isFrontline && hoverInfo.feature.properties.status !== 'CONTESTED' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 w-fit">
+                            ⚔️ FRONTLINE ({hoverInfo.feature.properties.threatLevel} THREAT) vs {hoverInfo.feature.properties.frontlineRival || 'Hostile Forces'}
                           </span>
                         )}
                       </div>
                     )}
-                    {hoverInfoRef.current.feature.properties.dominantAlliance && hoverInfoRef.current.feature.properties.dominantAlliance !== "None" && (
+                    {hoverInfo.feature.properties.dominantAlliance && hoverInfo.feature.properties.dominantAlliance !== "None" && (
                       <div className="text-secondary" style={{ fontSize: '0.85rem' }}>
-                        Dominant: <span style={{color: hoverInfoRef.current.feature.properties.islandColor || hoverInfoRef.current.feature.properties.haloColor || '#38bdf8', fontWeight: 'bold'}}>{hoverInfoRef.current.feature.properties.dominantAlliance}</span>
+                        Dominant: <span style={{color: hoverInfo.feature.properties.islandColor || hoverInfo.feature.properties.haloColor || '#38bdf8', fontWeight: 'bold'}}>{hoverInfo.feature.properties.dominantAlliance}</span>
                       </div>
                     )}
-                    {hoverInfoRef.current.feature.properties.renderType === 'island' && (
-                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Buff: <span style={{ color: 'white' }}>+{hoverInfoRef.current.feature.properties.resourcePlus} / -{hoverInfoRef.current.feature.properties.resourceMinus}</span></div>
+                    {hoverInfo.feature.properties.renderType === 'island' && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Buff: <span style={{ color: 'white' }}>+{hoverInfo.feature.properties.resourcePlus} / -{hoverInfo.feature.properties.resourceMinus}</span></div>
                     )}
-                    {hoverInfoRef.current.feature.properties.colonizedCount !== undefined && (
-                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Towns: <span style={{ color: 'white' }}>{hoverInfoRef.current.feature.properties.colonizedCount} / {hoverInfoRef.current.feature.properties.availableTowns}</span></div>
+                    {hoverInfo.feature.properties.colonizedCount !== undefined && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Towns: <span style={{ color: 'white' }}>{hoverInfo.feature.properties.colonizedCount} / {hoverInfo.feature.properties.availableTowns}</span></div>
                     )}
-                    {hoverInfoRef.current.feature.properties.dominantCount !== undefined && (
-                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Control: <span style={{ color: 'white' }}>{hoverInfoRef.current.feature.properties.dominantCount} / {hoverInfoRef.current.feature.properties.totalSlots || 20} slots</span></div>
+                    {hoverInfo.feature.properties.dominantCount !== undefined && (
+                      <div className="text-secondary" style={{ fontSize: '0.85rem' }}>Control: <span style={{ color: 'white' }}>{hoverInfo.feature.properties.dominantCount} / {hoverInfo.feature.properties.totalSlots || 20} slots</span></div>
                     )}
                   </>
                 )}
-                {hoverInfoRef.current.feature.properties.renderType === 'empty-slot' && (
+                {hoverInfo.feature.properties.renderType === 'empty-slot' && (
                   <>
                     <div style={{ fontWeight: 'bold', color: '#10b981', fontSize: '1.05rem' }}>Empty Slot</div>
                     <div className="text-secondary" style={{ fontSize: '0.8rem' }}>
-                      Island ({hoverInfoRef.current.feature.properties.islandX}, {hoverInfoRef.current.feature.properties.islandY}) • Slot #{hoverInfoRef.current.feature.properties.slot}
+                      Island ({hoverInfo.feature.properties.islandX}, {hoverInfo.feature.properties.islandY}) • Slot #{hoverInfo.feature.properties.slot}
                     </div>
                     <div style={{ color: '#38bdf8', fontSize: '0.75rem', marginTop: '0.25rem' }}>Ready for colonization</div>
                   </>
@@ -2107,7 +2339,7 @@ export default function WorldMap() {
               </div>
             </Popup>
           )}
-        </Map>
+        </MapGL>
       </div>
 
       {/* Floating Route Planner Tool (Milestone 3) */}
@@ -2366,7 +2598,10 @@ export default function WorldMap() {
               </div>
               <div className="flex flex-col gap-1">
                 {topAlliances.length > 0 ? topAlliances.slice(0, 10).map((a) => {
-                  const activeColor = customColors[a.name] || a.color;
+                  const activeColor = getEffectiveAllianceColor(a.name, a.id, a.color);
+                  const normName = a.name.trim().toLowerCase();
+                  const coalition = coalitionLookup.get(normName) || (a.id != null ? coalitionLookup.get(String(a.id)) : null);
+
                   return (
                     <div key={a.name} className="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg hover:bg-slate-800/60 transition-colors">
                       <div className="flex gap-2 items-center flex-1 min-w-0">
@@ -2389,18 +2624,32 @@ export default function WorldMap() {
                           style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} 
                           onClick={() => setSelectedEntity({ type: 'alliance', data: a })}
                         >
-                          <div className="font-bold text-white truncate text-xs hover:underline">{a.name}</div>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="font-bold text-white truncate text-xs hover:underline">{a.name}</div>
+                            {coalition && (
+                              <span 
+                                className="px-1 py-0.2 rounded text-[9px] font-bold shrink-0 truncate max-w-[75px]"
+                                style={{ 
+                                  backgroundColor: `${coalition.color || activeColor}25`, 
+                                  borderColor: `${coalition.color || activeColor}60`, 
+                                  color: coalition.color || activeColor,
+                                  borderWidth: '1px'
+                                }}
+                                title={`Member of ${coalition.name} Coalition`}
+                              >
+                                {coalition.name}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-400 truncate">{a.points.toLocaleString()} pts</div>
                         </div>
                       </div>
                       <input 
                         type="color" 
-                        defaultValue={activeColor}
-                        onBlur={(e) => {
+                        value={activeColor.startsWith('#') ? activeColor : '#8b5cf6'}
+                        onChange={(e) => {
                           const val = e.target.value;
-                          if (val !== activeColor) {
-                            setCustomColors(prev => ({...prev, [a.name]: val}));
-                          }
+                          setCustomColors(prev => ({...prev, [a.name]: val}));
                         }}
                         style={{ width: '18px', height: '18px', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
                         title="Customize color"

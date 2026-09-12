@@ -157,18 +157,26 @@ export function calculateDistance(origin, target) {
  * @param {number} unitSpeed 
  * @returns {number} Duration in seconds
  */
-export function calculateTravelTimeSeconds(distance, unitBaseSpeed, worldSpeed = 3, unitSpeed = 1) {
+export function calculateTravelTimeSeconds(distance, unitBaseSpeed, worldSpeed = 3, unitSpeed = 1, modifiers = {}) {
   const dist = Number(distance || 0);
   const speed = Number(unitBaseSpeed || 10);
   const wSpeed = Math.max(1, Number(worldSpeed || 3));
   const uSpeed = Math.max(1, Number(unitSpeed || 1));
 
   if (dist <= 0) return 0;
+
+  let speedMultiplier = 1.0;
+  if (modifiers?.cartographyResearched) speedMultiplier += 0.10;
+  if (modifiers?.hasLighthouse) speedMultiplier += 0.15;
+  if (modifiers?.atalantaLevel) speedMultiplier += (0.09 + modifiers.atalantaLevel * 0.01);
+  if (modifiers?.speedBuff) speedMultiplier += modifiers.speedBuff;
+
+  const baseDelay = modifiers?.includeNavalDelay ? 300 : 0;
   
   // Official Grepolis travel time formula:
-  // Duration (minutes) = (distance * 50) / (speed * worldSpeed * unitSpeed)
-  const minutes = (dist * 50) / (speed * wSpeed * uSpeed);
-  return Math.max(30, Math.round(minutes * 60));
+  // Duration (minutes) = (distance * 50) / (speed * worldSpeed * unitSpeed * speedMultiplier)
+  const minutes = (dist * 50) / (speed * wSpeed * uSpeed * speedMultiplier);
+  return Math.max(30, Math.round(baseDelay + minutes * 60));
 }
 
 /**

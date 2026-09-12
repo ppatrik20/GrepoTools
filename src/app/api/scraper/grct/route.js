@@ -12,6 +12,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Please provide either a GRCT report URL or raw report text' }, { status: 400 });
     }
 
+    const targetWorld = String(worldId || 'hu119').toLowerCase().trim();
+    if (!/^[a-z0-9]+$/.test(targetWorld)) {
+      return NextResponse.json({ error: 'Invalid worldId parameter' }, { status: 400 });
+    }
+
     let attacker = "Unknown Attacker";
     let defender = "Unknown Defender";
     let date = new Date();
@@ -24,15 +29,43 @@ export async function POST(request) {
     let parsedText = rawText || '';
 
     if (url) {
-      if (!url.includes('grcrt.net/repview.php?rep=') && !url.includes('grcrt.net')) {
-        return NextResponse.json({ error: 'Invalid GRCT report URL format. Expected: https://www.grcrt.net/repview.php?rep=...' }, { status: 400 });
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(url);
+      } catch (e) {
+        return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
       }
 
-      reportId = new URL(url).searchParams.get('rep') || `rep_${Date.now()}`;
+      const allowedHostnames = ['www.grcrt.net', 'grcrt.net'];
+      if (
+        parsedUrl.protocol !== 'https:' ||
+        !allowedHostnames.includes(parsedUrl.hostname.toLowerCase()) ||
+        (parsedUrl.port && parsedUrl.port !== '443') ||
+        parsedUrl.username ||
+        parsedUrl.password
+      ) {
+        return NextResponse.json({ 
+          error: 'Security validation failed: Only HTTPS requests to grcrt.net are allowed' 
+        }, { status: 400 });
+      }
 
-      const response = await fetch(url);
+      reportId = parsedUrl.searchParams.get('rep') || `rep_${Date.now()}`;
+
+      let response;
+      try {
+        response = await fetch(parsedUrl.toString(), {
+          signal: AbortSignal.timeout(10000)
+        });
+      } catch (fetchErr) {
+        return NextResponse.json({ 
+          error: `Network error contacting external report server: ${fetchErr.message}` 
+        }, { status: 502 });
+      }
+
       if (!response.ok) {
-        throw new Error(`Failed to fetch report: ${response.statusText}`);
+        return NextResponse.json({ 
+          error: `Failed to fetch report from grcrt.net: HTTP ${response.status} ${response.statusText}` 
+        }, { status: 502 });
       }
 
       const html = await response.text();
@@ -97,7 +130,7 @@ export async function POST(request) {
 
     const report = await prisma.report.create({
       data: {
-        worldId: worldId.toLowerCase(),
+        worldId: targetWorld,
         originalId: reportId,
         attacker,
         defender,
@@ -115,14 +148,18 @@ export async function POST(request) {
 
   } catch (error) {
     console.error('Scraper Error:', error);
-    return NextResponse.json({ error: 'Internal server error' || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
+    const worldId = (searchParams.get('world') || 'hu119').toLowerCase().trim();
+
+    if (!/^[a-z0-9]+$/.test(worldId)) {
+      return NextResponse.json({ error: 'Invalid world parameter' }, { status: 400 });
+    }
 
     const reports = await prisma.report.findMany({
       where: { worldId },

@@ -28,8 +28,72 @@ export function AppContextProvider({ children }) {
   const [loadingWorlds, setLoadingWorlds] = useState(true);
   const [loadingPlayer, setLoadingPlayer] = useState(true);
 
+  const [user, setUser] = useState(null);
+  const [userLoading, setUserLoading] = useState(true);
+
   const activeWorldIdRef = useRef(activeWorldId);
-  activeWorldIdRef.current = activeWorldId;
+  useEffect(() => {
+    activeWorldIdRef.current = activeWorldId;
+  }, [activeWorldId]);
+
+  // Auth: Fetch current user session with automatic token refresh on 401
+  const refreshUser = useCallback(async () => {
+    try {
+      setUserLoading(true);
+      let res = await fetch('/api/auth/me');
+
+      // If access token is expired, attempt silent Refresh Token Rotation (RTR)
+      if (res.status === 401) {
+        try {
+          const refreshRes = await fetch('/api/auth/refresh', { method: 'POST' });
+          if (refreshRes.ok) {
+            res = await fetch('/api/auth/me');
+          }
+        } catch {}
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user || null);
+      } else {
+        setUser(null);
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setUserLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
+
+  // Proactive periodic token refresh: rotates access token every 10 minutes while user is active
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/auth/refresh', { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) setUser(data.user);
+        }
+      } catch {}
+    }, 10 * 60 * 1000); // 10 minutes (access token lifespan is 15 minutes)
+
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    setUser(null);
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
+  }, []);
 
 
   // 2. Fetch Worlds list (does not recreate on activeWorldId change)
@@ -145,7 +209,11 @@ export function AppContextProvider({ children }) {
     refreshWorlds,
     refreshActivePlayer,
     loadingWorlds,
-    loadingPlayer
+    loadingPlayer,
+    user,
+    userLoading,
+    refreshUser,
+    logout
   }), [
     worlds,
     activeWorldId,
@@ -158,7 +226,11 @@ export function AppContextProvider({ children }) {
     refreshWorlds,
     refreshActivePlayer,
     loadingWorlds,
-    loadingPlayer
+    loadingPlayer,
+    user,
+    userLoading,
+    refreshUser,
+    logout
   ]);
 
   return (

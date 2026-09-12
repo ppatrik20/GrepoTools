@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { 
   Globe, Plus, RefreshCw, Trash2, CheckCircle2, AlertTriangle, 
-  Settings, Database, Server, Clock, Edit3, Lock, Unlock, X, ShieldCheck
+  Settings, Database, Server, Clock, Edit3, Lock, Unlock, X, ShieldCheck, Users
 } from 'lucide-react';
 
 export default function AdminWorldCenter() {
@@ -38,6 +38,13 @@ export default function AdminWorldCenter() {
   const [editUnitSpeed, setEditUnitSpeed] = useState(3.0);
   const [editType, setEditType] = useState('siege');
   const [editActive, setEditActive] = useState(true);
+
+  // Team creation states
+  const [createTeamOpen, setCreateTeamOpen] = useState(false);
+  const [newTeamWorldId, setNewTeamWorldId] = useState('');
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamDesc, setNewTeamDesc] = useState('');
+  const [creatingTeam, setCreatingTeam] = useState(false);
 
   // Check existing session authentication
   useEffect(() => {
@@ -214,6 +221,38 @@ export default function AdminWorldCenter() {
     }
   };
 
+  const handleCreateTeam = async (e) => {
+    e.preventDefault();
+    if (!newTeamName.trim() || !newTeamWorldId.trim()) return;
+    setCreatingTeam(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const res = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          worldId: newTeamWorldId.trim().toLowerCase(),
+          name: newTeamName.trim(),
+          description: newTeamDesc.trim() || undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccessMessage(`Team "${data.team.name}" successfully created on world ${data.team.worldId.toUpperCase()}!`);
+        setCreateTeamOpen(false);
+        setNewTeamName('');
+        setNewTeamDesc('');
+      } else {
+        setError(data.error || 'Failed to create team');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreatingTeam(false);
+    }
+  };
+
   if (checkingAuth) {
     return (
       <div className="py-20 text-center text-slate-500 text-sm animate-pulse">
@@ -280,6 +319,16 @@ export default function AdminWorldCenter() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              setNewTeamWorldId(worlds[0]?.id || 'hu119');
+              setCreateTeamOpen(true);
+            }}
+            className="btn bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1.5"
+          >
+            <Users size={16} /> Create Team
+          </button>
+
           <button
             onClick={() => setFormOpen(!formOpen)}
             className="btn btn-primary"
@@ -564,7 +613,7 @@ export default function AdminWorldCenter() {
       {/* Edit World Modal */}
       {editingWorld && (
         <div 
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in"
+          className="grepo-modal-backdrop animate-fade-in"
           onClick={(e) => { if (e.target === e.currentTarget) setEditingWorld(null); }}
         >
           <div 
@@ -677,6 +726,97 @@ export default function AdminWorldCenter() {
                   className="btn btn-primary text-xs"
                 >
                   {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Team Modal */}
+      {createTeamOpen && (
+        <div 
+          className="grepo-modal-backdrop animate-fade-in"
+          onClick={(e) => { if (e.target === e.currentTarget) setCreateTeamOpen(false); }}
+        >
+          <div 
+            className="glass-panel w-full max-w-md p-6 bg-slate-900/95 border border-amber-500/40 rounded-2xl shadow-2xl relative my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Users size={18} className="text-amber-400" /> Create Tactical Team
+              </h3>
+              <button 
+                onClick={() => setCreateTeamOpen(false)}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTeam} className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  World Target <span className="text-rose-400">*</span>
+                </label>
+                <select
+                  value={newTeamWorldId}
+                  onChange={(e) => setNewTeamWorldId(e.target.value)}
+                  className="input-field"
+                  required
+                >
+                  {worlds.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({w.id.toUpperCase()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Team Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Aegis Vanguard, Spartan Core"
+                  value={newTeamName}
+                  onChange={(e) => setNewTeamName(e.target.value)}
+                  className="input-field"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Description (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Tactical focus, alliance association, or squad notes..."
+                  value={newTeamDesc}
+                  onChange={(e) => setNewTeamDesc(e.target.value)}
+                  className="input-field resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCreateTeamOpen(false)}
+                  className="btn bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingTeam}
+                  className="btn bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs"
+                >
+                  {creatingTeam ? 'Creating...' : 'Create Team'}
                 </button>
               </div>
             </form>

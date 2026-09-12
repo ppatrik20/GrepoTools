@@ -266,52 +266,120 @@ export function classifyIslands(islands = [], towns = [], options = {}) {
       enemyCount,
       dominanceRatio: +dominanceRatio.toFixed(3),
       towns: islandTowns,
-      enemyTowns
+      enemyTowns,
+      isFrontline: false,
+      threatLevel: 'NONE',
+      frontlineRival: null,
+      frontlineRivalColor: null,
+      frontlineDist: null,
+      isSafeCore: false
     };
     islandSummaryList.push(summary);
+  });
 
-    // Build GeoJSON features for visualization
+  // 4. Spatial Frontier & Threat Analysis: Detect frontline contact zones vs safe core heartlands
+  const populatedIslands = islandSummaryList.filter(i => 
+    i.occupiedCount > 0 && 
+    i.dominantAlliance !== 'None' && 
+    i.status !== ISLAND_STATUS.NEUTRAL
+  );
+
+  const FRONTLINE_PROXIMITY_DEG = 4.0; // ~11 grid units in Grepolis world coords (~1-2h bireme/siege range)
+
+  populatedIslands.forEach(isl => {
+    let closestDist = Infinity;
+    let closestRival = null;
+    let closestRivalColor = null;
+
+    for (const other of populatedIslands) {
+      if (other === isl) continue;
+      if (other.dominantAlliance === isl.dominantAlliance) continue;
+
+      const dist = Math.hypot(other.centerLng - isl.centerLng, other.centerLat - isl.centerLat);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestRival = other.dominantAlliance;
+        closestRivalColor = other.dominantColor;
+      }
+    }
+
+    const isNearEnemy = closestDist <= FRONTLINE_PROXIMITY_DEG;
+    const isContested = isl.status === ISLAND_STATUS.CONTESTED;
+
+    isl.isFrontline = isNearEnemy || isContested;
+    isl.frontlineDist = Number.isFinite(closestDist) ? Number(closestDist.toFixed(3)) : null;
+    isl.frontlineRival = closestRival || (isContested ? 'Hostile Forces' : null);
+    isl.frontlineRivalColor = closestRivalColor || '#f43f5e';
+
+    if (isContested) {
+      isl.threatLevel = 'CRITICAL';
+      isl.isSafeCore = false;
+    } else if (isNearEnemy) {
+      if (closestDist <= 1.8) {
+        isl.threatLevel = 'CRITICAL';
+      } else if (closestDist <= 2.8) {
+        isl.threatLevel = 'HIGH';
+      } else {
+        isl.threatLevel = 'GUARD';
+      }
+      isl.isSafeCore = false;
+    } else {
+      isl.threatLevel = 'NONE';
+      isl.isSafeCore = (isl.status === ISLAND_STATUS.CLEAN);
+    }
+  });
+
+  // 5. Generate GPU-ready GeoJSON feature sets
+  const frontlineFeatures = [];
+
+  islandSummaryList.forEach(isl => {
+    if (isl.occupiedCount === 0) return;
+
     const pointGeometry = {
       type: "Point",
-      coordinates: [centerLng, centerLat]
+      coordinates: [isl.centerLng, isl.centerLat]
     };
 
-    if (status === ISLAND_STATUS.CLEAN) {
+    const commonProps = {
+      islandKey: isl.islandKey,
+      x: isl.x,
+      y: isl.y,
+      dominantAlliance: isl.dominantAlliance,
+      color: isl.dominantColor,
+      dominantCount: isl.dominantCount,
+      enemyCount: isl.enemyCount,
+      totalSlots: isl.totalSlots,
+      status: isl.status,
+      isFrontline: isl.isFrontline,
+      threatLevel: isl.threatLevel,
+      frontlineRival: isl.frontlineRival,
+      frontlineRivalColor: isl.frontlineRivalColor,
+      frontlineDist: isl.frontlineDist,
+      isSafeCore: isl.isSafeCore
+    };
+
+    if (isl.status === ISLAND_STATUS.CLEAN) {
       cleanFeatures.push({
         type: "Feature",
         geometry: pointGeometry,
         properties: {
-          islandKey: key,
-          x: ix,
-          y: iy,
-          dominantAlliance: dominantName,
-          color: dominantColor,
-          townCount: dominantCount,
-          totalSlots,
-          status: 'CLEAN'
+          ...commonProps,
+          townCount: isl.dominantCount
         }
       });
-    } else if (status === ISLAND_STATUS.INFILTRATED) {
+    } else if (isl.status === ISLAND_STATUS.INFILTRATED) {
       infiltratedFeatures.push({
         type: "Feature",
         geometry: pointGeometry,
         properties: {
-          islandKey: key,
-          x: ix,
-          y: iy,
-          dominantAlliance: dominantName,
-          color: dominantColor,
-          dominantCount,
-          enemyCount,
-          totalSlots,
-          dominanceRatio: summary.dominanceRatio,
-          status: 'INFILTRATED',
-          warningMessage: `${enemyCount} enemy town${enemyCount > 1 ? 's' : ''} on ${dominantName} island!`
+          ...commonProps,
+          dominanceRatio: isl.dominanceRatio,
+          warningMessage: `${isl.enemyCount} enemy town${isl.enemyCount > 1 ? 's' : ''} on ${isl.dominantAlliance} island!`
         }
       });
 
-      // Also create target beacons on the exact enemy towns
-      enemyTowns.forEach(et => {
+      // Target beacons on exact enemy towns
+      isl.enemyTowns.forEach(et => {
         enemyBeachheadFeatures.push({
           type: "Feature",
           geometry: {
@@ -323,30 +391,37 @@ export function classifyIslands(islands = [], towns = [], options = {}) {
             name: et.name,
             x: et.x,
             y: et.y,
-            islandKey: key,
+            islandKey: isl.islandKey,
             player: et.playerName,
             enemyAlliance: et.allianceName,
-            hostAlliance: dominantName,
+            hostAlliance: isl.dominantAlliance,
             color: '#ef4444',
             isBeachhead: true
           }
         });
       });
-    } else if (status === ISLAND_STATUS.CONTESTED) {
+    } else if (isl.status === ISLAND_STATUS.CONTESTED) {
       contestedFeatures.push({
         type: "Feature",
         geometry: pointGeometry,
         properties: {
-          islandKey: key,
-          x: ix,
-          y: iy,
-          dominantAlliance: dominantName,
-          color: dominantColor,
-          dominantCount,
-          enemyCount,
-          totalSlots,
-          status: 'CONTESTED',
-          tension: +(1 - dominanceRatio).toFixed(2)
+          ...commonProps,
+          tension: +(1 - isl.dominanceRatio).toFixed(2)
+        }
+      });
+    }
+
+    // Add to tactical Frontline Islands feature collection
+    if (isl.isFrontline) {
+      frontlineFeatures.push({
+        type: "Feature",
+        geometry: pointGeometry,
+        properties: {
+          ...commonProps,
+          combatLabel: isl.status === ISLAND_STATUS.CONTESTED
+            ? `⚔️ CONTESTED (${isl.dominantCount} vs ${isl.enemyCount})`
+            : `⚔️ FRONT vs ${isl.frontlineRival}`,
+          badgeText: isl.status === ISLAND_STATUS.CONTESTED ? '⚔️ CONTESTED' : `⚔️ ${isl.threatLevel}`
         }
       });
     }
@@ -357,12 +432,15 @@ export function classifyIslands(islands = [], towns = [], options = {}) {
     cleanGeoJSON: { type: "FeatureCollection", features: cleanFeatures },
     infiltratedGeoJSON: { type: "FeatureCollection", features: infiltratedFeatures },
     contestedGeoJSON: { type: "FeatureCollection", features: contestedFeatures },
-    enemyBeachheadsGeoJSON: { type: "FeatureCollection", features: enemyBeachheadFeatures }
+    enemyBeachheadsGeoJSON: { type: "FeatureCollection", features: enemyBeachheadFeatures },
+    frontlineIslandsGeoJSON: { type: "FeatureCollection", features: frontlineFeatures }
   };
 }
 
-export default {
+const islandControl = {
   ISLAND_STATUS,
   buildCoalitionLookup,
   classifyIslands
 };
+
+export default islandControl;

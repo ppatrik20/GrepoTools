@@ -512,8 +512,9 @@ function RecallSnipeContent() {
         body: JSON.stringify({
           worldId: activeWorldId,
           targetTownId: activeGroup.townId,
+          originTownId: activeGroup.townId,
           targetTownName: activeGroup.name,
-          landingTime: plan.targetReturnTime,
+          targetReturnTime: plan.targetReturnTime,
           sendTime: plan.sendTime,
           recallTime: plan.recallTime,
           type: 'recall',

@@ -84,9 +84,7 @@ export default function AllianceCoalitionModal({
 
     fetchAllAlliances();
     return () => { isMounted = false; };
-  }, [isOpen, worldId]);
-
-  if (!isOpen) return null;
+  }, [isOpen, worldId, allWorldAlliances.length]);
 
   // Alliance lookup map
   const allianceMap = useMemo(() => {
@@ -129,6 +127,8 @@ export default function AllianceCoalitionModal({
       return nameMatch || rankMatch;
     });
   }, [allWorldAlliances, searchQuery]);
+
+  if (!isOpen) return null;
 
   // Handle start editing
   const startEditing = (coalition) => {
@@ -251,7 +251,7 @@ export default function AllianceCoalitionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="grepo-modal-backdrop animate-in fade-in duration-200">
       <div className="glass-panel w-full max-w-5xl rounded-2xl border border-slate-700/80 bg-slate-900/95 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
         
         {/* Modal Header */}

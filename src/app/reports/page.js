@@ -13,11 +13,8 @@ export default function ReportsPage() {
   const [success, setSuccess] = useState(null);
   const [reports, setReports] = useState([]);
 
-  useEffect(() => {
-    if (activeWorldId) fetchReports();
-  }, [activeWorldId]);
-
-  const fetchReports = async () => {
+  const fetchReports = React.useCallback(async () => {
+    if (!activeWorldId) return;
     try {
       const res = await fetch(`/api/scraper/grct?world=${activeWorldId}`);
       const data = await res.json();
@@ -25,7 +22,11 @@ export default function ReportsPage() {
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [activeWorldId]);
+
+  useEffect(() => {
+    fetchReports();
+  }, [fetchReports]);
 
   const handleScrape = async (e) => {
     e.preventDefault();
@@ -63,7 +64,7 @@ export default function ReportsPage() {
       <div className="border-b border-slate-800 pb-5">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xs font-mono bg-primary/20 text-primary border border-primary/30 px-2 py-0.5 rounded">
-            World: {activeWorld?.name || activeWorldId.toUpperCase()}
+            World: {activeWorld?.name || activeWorldId?.toUpperCase() || ''}
           </span>
         </div>
         <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">

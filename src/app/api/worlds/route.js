@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { verifyAdminBearerAuth, requireAuth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,7 +8,16 @@ export async function GET() {
   try {
     const worlds = await prisma.world.findMany({
       orderBy: { createdAt: 'asc' },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        server: true,
+        speed: true,
+        unitSpeed: true,
+        worldType: true,
+        isActive: true,
+        lastSync: true,
+        createdAt: true,
         _count: {
           select: {
             players: true,
@@ -42,6 +52,11 @@ export async function GET() {
 
 export async function POST(request) {
   try {
+    const auth = await requireAuth(request, { minGlobalRole: 'GLOBAL_ADMIN' });
+    if (!auth.authorized) {
+      return auth.response;
+    }
+
     const body = await request.json();
     const { id, name, server, speed, unitSpeed, worldType, isActive } = body;
 
@@ -83,6 +98,11 @@ export async function POST(request) {
 
 export async function PUT(request) {
   try {
+    const auth = await requireAuth(request, { minGlobalRole: 'GLOBAL_ADMIN' });
+    if (!auth.authorized) {
+      return auth.response;
+    }
+
     const body = await request.json();
     const { id, name, server, speed, unitSpeed, worldType, isActive } = body;
 
@@ -114,6 +134,11 @@ export async function PUT(request) {
 
 export async function DELETE(request) {
   try {
+    const auth = await requireAuth(request, { minGlobalRole: 'GLOBAL_ADMIN' });
+    if (!auth.authorized) {
+      return auth.response;
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -121,12 +146,19 @@ export async function DELETE(request) {
       return NextResponse.json({ success: false, error: 'Missing world ID' }, { status: 400 });
     }
 
-    // Delete world (foreign keys will cascade)
-    await prisma.world.delete({
-      where: { id: id.trim().toLowerCase() }
-    });
-
-    return NextResponse.json({ success: true, message: `World ${id} deleted` });
+    const cleanId = id.trim().toLowerCase();
+    try {
+      // Delete world (foreign keys will cascade)
+      await prisma.world.delete({
+        where: { id: cleanId }
+      });
+      return NextResponse.json({ success: true, message: `World ${id} deleted` });
+    } catch (err) {
+      if (err?.code === 'P2025') {
+        return NextResponse.json({ success: false, error: `World ${id} not found` }, { status: 404 });
+      }
+      throw err;
+    }
   } catch (error) {
     console.error("DELETE /api/worlds error:", error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });

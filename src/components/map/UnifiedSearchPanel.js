@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Loader2, MapPin, Users, Trophy, Castle, Ghost, Navigation, Compass, Globe, Shield, Radio, ChevronDown } from 'lucide-react';
+import { Search, X, Loader2, MapPin, Users, Trophy, Castle, Ghost, Navigation, Compass, Globe, Shield, Radio, ChevronDown, Swords } from 'lucide-react';
 import IntelRadarControls from '@/components/map/IntelRadarControls';
 
 export function normalizeTownData(rawTown) {
@@ -44,6 +44,9 @@ export default function UnifiedSearchPanel({
   isRouteToolActive,
   onToggleEmptySlots,
   showEmptySlots,
+  onToggleFrontlines,
+  showFrontlines = true,
+  frontlineCount = 0,
   radarFilters,
   onRadarChange,
   radarCounts = { ghosts: 0, sieges: 0, inactiveFarms: 0, total: 0 }
@@ -299,6 +302,27 @@ export default function UnifiedSearchPanel({
           <Navigation size={13} className={isRouteToolActive ? 'text-primary animate-bounce' : 'text-slate-400'} />
           <span className="hidden md:inline">Route</span>
         </button>
+
+        {/* Tactical Frontline Islands & Demarcation Toggle */}
+        {onToggleFrontlines && (
+          <button
+            onClick={onToggleFrontlines}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              showFrontlines 
+                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50 shadow-sm' 
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`}
+            title="Toggle Tactical Frontline Islands & Maritime Demarcation"
+          >
+            <Swords size={13} className={showFrontlines ? 'text-rose-400' : 'text-slate-400'} />
+            <span className="hidden md:inline">Frontline</span>
+            {frontlineCount > 0 && (
+              <span className="px-1 py-0.2 text-[9px] font-mono rounded-full bg-rose-400/20 text-rose-300 border border-rose-400/40 font-bold">
+                {frontlineCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tactical Radar HUD Dropdown Submenu */}
@@ -473,7 +497,7 @@ export default function UnifiedSearchPanel({
           ) : (
             !loading && (
               <div className="p-6 text-center text-slate-400 text-sm">
-                No players, alliances, or towns found for <span className="text-white font-semibold">"{query}"</span>
+                No players, alliances, or towns found for <span className="text-white font-semibold">&quot;{query}&quot;</span>
               </div>
             )
           )}
