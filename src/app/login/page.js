@@ -67,10 +67,7 @@ function LoginForm() {
       const data = await res.json();
 
       if (!res.ok) {
-        const errorMsg = data.details
-          ? `${data.error}: ${data.details}`
-          : (data.error || 'Authentication failed');
-        setError(errorMsg);
+        setError(data.error || 'Authentication failed');
         if (data.attemptsRemaining !== undefined) {
           setAttemptsRemaining(data.attemptsRemaining);
         }

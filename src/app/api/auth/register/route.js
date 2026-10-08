@@ -262,7 +262,7 @@ export async function POST(request) {
   } catch (err) {
     console.error('Error during invite registration:', err);
     return NextResponse.json(
-      { error: 'Internal server error during registration: ' + err.message },
+      { error: 'An unexpected error occurred during registration. Please try again later.' },
       { status: 500 }
     );
   }

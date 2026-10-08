@@ -223,29 +223,8 @@ export async function POST(request) {
   } catch (err) {
     console.error('Error during login:', err);
 
-    const isSchemaError = err.message && (
-      err.message.includes('relation') ||
-      err.message.includes('does not exist') ||
-      err.message.includes('table') ||
-      err.code === 'P2021' ||
-      err.code === 'P2022'
-    );
-
-    if (isSchemaError) {
-      return NextResponse.json(
-        {
-          error: 'Database schema is not yet initialized. Please wait for schema synchronization or run prisma db push.',
-          details: err.message
-        },
-        { status: 503 }
-      );
-    }
-
     return NextResponse.json(
-      {
-        error: 'Internal server error during login',
-        details: err.message || String(err)
-      },
+      { error: 'An unexpected error occurred during login. Please try again later.' },
       { status: 500 }
     );
   }

@@ -153,7 +153,7 @@ export async function POST(request) {
   } catch (err) {
     console.error('Error during town verification check:', err);
     return NextResponse.json(
-      { error: 'Internal server error during verification check: ' + err.message },
+      { error: 'An unexpected error occurred during verification check. Please try again later.' },
       { status: 500 }
     );
   }
