@@ -36,6 +36,14 @@ _Avoid_: Half-time cancel, return trick, fake attack cancel
 The critical chronological interval between offensive clear waves and arrival of the Colony Ship or support waves, dictated by world conquest rules (Revolt vs. Siege).
 _Avoid_: Timing hole, attack window, CS gap
 
+**Team Authority**:
+The computed tactical privilege tier and operational permissions governing a user's ability to dispatch orders, manage rosters, or configure custom roles.
+_Avoid_: User level, access rights, role level
+
+**Capability Grant**:
+A fine-grained permission token assigned through custom team roles (e.g., `TARGETS_MANAGE`, `DEFENSE_COORDINATE`, `INVITES_MANAGE`).
+_Avoid_: Permission flag, right, auth check
+
 ## Architecture Seams
 
 **Tactical Scene Pipeline**:
@@ -57,3 +65,7 @@ _Avoid_: Snipe service, timer helper, attack manager
 **Operations Storage**:
 The adapter seam bridging operational queues and recall groups to local browser storage or remote team databases with automatic date revival.
 _Avoid_: Local storage wrapper, snipe persistence, db client
+
+**Team Operations Adapter**:
+The unified client-side adapter seam executing team metadata aggregation, member role changes, custom role definitions, and cryptographic invitation lifecycles.
+_Avoid_: Team service, team client, team API helper
