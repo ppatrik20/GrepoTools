@@ -1,6 +1,38 @@
 import { prisma } from '../prisma.js';
 
 /**
+ * Standardized catalog of immutable audit actions across security and administrative domains.
+ */
+export const AUDIT_ACTIONS = Object.freeze({
+  // Authentication events
+  AUTH_LOGIN_SUCCESS: 'AUTH_LOGIN_SUCCESS',
+  AUTH_LOGIN_FAILURE: 'AUTH_LOGIN_FAILURE',
+  AUTH_REGISTER: 'AUTH_REGISTER',
+  AUTH_REFRESH: 'AUTH_REFRESH',
+  AUTH_LOGOUT: 'AUTH_LOGOUT',
+
+  // Operative identity verification
+  TOWN_VERIFIED: 'TOWN_VERIFIED',
+  TOWN_VERIFY_ATTEMPT: 'TOWN_VERIFY_ATTEMPT',
+
+  // Team and RBAC mutations
+  TEAM_CREATED: 'TEAM_CREATED',
+  TEAM_MEMBER_UPDATED: 'TEAM_MEMBER_UPDATED',
+  TEAM_MEMBER_REMOVED: 'TEAM_MEMBER_REMOVED',
+  ROLE_CREATED: 'ROLE_CREATED',
+  ROLE_UPDATED: 'ROLE_UPDATED',
+  ROLE_DELETED: 'ROLE_DELETED',
+  INVITE_CREATED: 'INVITE_CREATED',
+  INVITE_REVOKED: 'INVITE_REVOKED',
+
+  // World configuration and sync
+  WORLD_SYNC_TRIGGERED: 'WORLD_SYNC_TRIGGERED',
+  WORLD_CREATED: 'WORLD_CREATED',
+  WORLD_UPDATED: 'WORLD_UPDATED',
+  WORLD_DELETED: 'WORLD_DELETED'
+});
+
+/**
  * Records an audit log event in the database.
  * Gracefully captures failures to prevent disruption of primary operations.
  *
@@ -23,10 +55,11 @@ export async function logAuditEvent({
   ipAddress,
   userAgent,
   status = 'SUCCESS',
-  details = null
+  details = null,
+  prismaClient = prisma
 }) {
   try {
-    return await prisma.auditLog.create({
+    return await prismaClient.auditLog.create({
       data: {
         userId: userId || null,
         actorUsername: actorUsername || null,

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { Shield, Copy, Check, RefreshCw, ArrowRight, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
+import { IdentityVerificationAdapter } from '@/lib/auth/IdentityVerificationAdapter';
 
 export default function VerifyTownPage() {
   const router = useRouter();
@@ -36,25 +37,19 @@ export default function VerifyTownPage() {
     setError('');
 
     try {
-      const res = await fetch('/api/auth/verify-town', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worldId })
-      });
-
-      const data = await res.json();
-      if (res.ok && data.verified) {
+      const data = await IdentityVerificationAdapter.verifyTownOwnership({ worldId });
+      if (data.verified) {
         setResult({
           success: true,
-          message: data.message || 'Verification successful!',
+          message: data.message,
           town: data.town
         });
         await refreshUser();
       } else {
-        setError(data.message || data.error || 'Verification code not found on any of your towns yet.');
+        setError(data.message || 'Verification code not found on any of your towns yet.');
       }
     } catch (err) {
-      setError('Error communicating with verification service: ' + err.message);
+      setError(err.message || 'Error communicating with verification service');
     } finally {
       setChecking(false);
     }

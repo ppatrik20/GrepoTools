@@ -16,6 +16,7 @@ import {
   computeIslandDeltas
 } from './WorldDeltaEngine';
 import { WorldCacheCompiler } from './WorldCacheCompiler';
+import { TownVerificationEngine } from '@/lib/auth/TownVerificationEngine';
 
 const CREATE_BATCH_SIZE = 5000;
 const UPDATE_BATCH_SIZE = 50000;
@@ -150,59 +151,11 @@ export const WorldSyncPipeline = {
    */
   async scanTownRenames(worldId, prismaClient) {
     try {
-      const unverifiedMembers = await prismaClient.teamMember.findMany({
-        where: {
-          worldId,
-          verificationStatus: 'UNVERIFIED'
-        },
-        include: { user: true }
+      await TownVerificationEngine.executeTownVerificationCheck({
+        worldId,
+        prismaClient,
+        method: 'SYNC_AUTOMATIC'
       });
-
-      if (!unverifiedMembers || unverifiedMembers.length === 0) return;
-
-      for (const member of unverifiedMembers) {
-        const matchingTown = await prismaClient.town.findFirst({
-          where: {
-            worldId,
-            playerId: member.playerId,
-            name: {
-              contains: member.verificationCode
-            }
-          }
-        });
-
-        if (matchingTown) {
-          await prismaClient.teamMember.update({
-            where: { id: member.id },
-            data: {
-              verificationStatus: 'VERIFIED',
-              verifiedAt: new Date()
-            }
-          });
-
-          try {
-            const { logAuditEvent } = await import('@/lib/auth/audit.js');
-            await logAuditEvent({
-              userId: member.userId,
-              actorUsername: member.user?.username || member.playerName,
-              action: 'TOWN_VERIFIED',
-              targetResource: `town:${matchingTown.id}`,
-              status: 'SUCCESS',
-              details: {
-                worldId,
-                playerId: member.playerId,
-                townId: matchingTown.id,
-                townName: matchingTown.name,
-                verificationCode: member.verificationCode,
-                method: 'SYNC_AUTOMATIC'
-              }
-            });
-          } catch (auditErr) {
-            console.warn('[WorldSyncPipeline] Failed to log audit event for town verification:', auditErr);
-          }
-          console.log(`[WorldSyncPipeline] Verified player "${member.playerName}" on world [${worldId}] via town rename "${matchingTown.name}"!`);
-        }
-      }
     } catch (verifyErr) {
       console.warn(`[WorldSyncPipeline] Warning: Automatic town verification scan failed for world ${worldId}:`, verifyErr.message);
     }

@@ -89,3 +89,24 @@ _Avoid_: Cache helper, cache service, geojson builder
 **World Operations Adapter**:
 The unified client adapter seam encapsulating world queries, synchronization triggers, cache rebuilding, and administrative world management.
 _Avoid_: World API service, world client, admin helper
+
+**Town Verification**:
+The cryptographic or tokenized proof-of-ownership process where an operative temporarily alters an in-game town name to embed a verification code, confirming identity against Grepolis world data.
+_Avoid_: Account proof, name check, auth town
+
+**Audit Event**:
+An immutable, append-only security log record capturing authentication outcomes, administrative mutations, and identity verification handshakes with actor context and IP metadata.
+_Avoid_: System log, activity entry, db record
+
+**Town Verification Engine**:
+The deep domain module evaluating in-game town rename substrings and coordinating atomic operative verification promotions across background ingestion and on-demand user verification.
+_Avoid_: Verification service, town check helper, auth validator
+
+**Audit Log Adapter**:
+The unified client adapter seam encapsulating security log queries, pagination, and multi-field filtering behind a normalized interface.
+_Avoid_: Audit service, audit client, log fetcher
+
+**Identity Verification Adapter**:
+The unified client adapter seam executing on-demand town verification handshakes and master player identity queries.
+_Avoid_: Verify client, player service, identity helper
+

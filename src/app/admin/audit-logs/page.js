@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Shield, Filter, RefreshCw, AlertTriangle, CheckCircle, XCircle, Search } from 'lucide-react';
+import { AuditLogAdapter } from '@/lib/auth/AuditLogAdapter';
 
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState([]);
@@ -18,22 +19,16 @@ export default function AuditLogsPage() {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams();
-      if (actionFilter) params.append('action', actionFilter);
-      if (actorFilter) params.append('actorUsername', actorFilter);
-      if (statusFilter) params.append('status', statusFilter);
-      params.append('limit', '50');
-
-      const res = await fetch(`/api/admin/audit-logs?${params.toString()}`);
-      const data = await res.json();
-      if (res.ok) {
-        setLogs(data.logs || []);
-        setTotal(data.total || 0);
-      } else {
-        setError(data.error || 'Failed to fetch audit logs');
-      }
+      const data = await AuditLogAdapter.fetchAuditLogs({
+        action: actionFilter,
+        actorUsername: actorFilter,
+        status: statusFilter,
+        limit: 50
+      });
+      setLogs(data.logs);
+      setTotal(data.total);
     } catch (err) {
-      setError('Error connecting to audit service: ' + err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }

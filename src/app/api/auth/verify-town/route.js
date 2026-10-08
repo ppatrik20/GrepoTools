@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth, buildTeamMembershipPayload } from '@/lib/auth/rbac';
 import { generateAccessToken, setAuthCookies } from '@/lib/auth/tokens';
-import { logAuditEvent } from '@/lib/auth/audit';
+import { logAuditEvent, AUDIT_ACTIONS } from '@/lib/auth/audit';
+import { TownVerificationEngine } from '@/lib/auth/TownVerificationEngine';
 
 export async function POST(request) {
   const auth = await requireAuth(request, { allowUnverified: true });
@@ -43,52 +44,20 @@ export async function POST(request) {
       });
     }
 
-    let verifiedCount = 0;
-    let verifiedTown = null;
-
-    for (const member of unverified) {
-      // Find town matching the player ID and containing the verification code
-      const matchingTown = await prisma.town.findFirst({
-        where: {
-          worldId: member.worldId,
-          playerId: member.playerId,
-          name: {
-            contains: member.verificationCode
-          }
-        }
-      });
-
-      if (matchingTown) {
-        await prisma.teamMember.update({
-          where: { id: member.id },
-          data: {
-            verificationStatus: 'VERIFIED',
-            verifiedAt: new Date()
-          }
-        });
-
-        await logAuditEvent({
-          userId: user.sub,
-          actorUsername: user.username,
-          action: 'TOWN_VERIFIED',
-          targetResource: `town:${matchingTown.id}`,
-          ipAddress,
-          userAgent,
-          status: 'SUCCESS',
-          details: {
-            worldId: member.worldId,
-            playerId: member.playerId,
-            townId: matchingTown.id,
-            townName: matchingTown.name,
-            code: member.verificationCode,
-            method: 'ON_DEMAND_CHECK'
-          }
-        });
-
-        verifiedCount++;
-        verifiedTown = { id: matchingTown.id, name: matchingTown.name };
+    const verificationResult = await TownVerificationEngine.executeTownVerificationCheck({
+      worldId,
+      userId: user.sub,
+      prismaClient: prisma,
+      method: 'ON_DEMAND_CHECK',
+      actorContext: {
+        ipAddress,
+        userAgent,
+        actorUsername: user.username
       }
-    }
+    });
+
+    const verifiedCount = verificationResult.verifiedCount;
+    const verifiedTown = verificationResult.verifiedTowns[0] || null;
 
     if (verifiedCount > 0) {
       // Re-query all memberships to generate updated access token
