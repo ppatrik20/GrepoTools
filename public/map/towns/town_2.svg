@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="town-cutout-mask-2">
+      <rect width="256" height="256" fill="#ffffff" />
+
+    <!-- Fortified Gate Archway -->
+    <path d="M 96,172 Q 112,158 128,172 L 128,224 L 96,224 Z" fill="#000000" />
+    <!-- Watchtower Arrow Slit -->
+    <rect x="152" y="128" width="8" height="22" rx="2" fill="#000000" />
+    <!-- Residential Window -->
+    <rect x="56" y="184" width="14" height="16" rx="2" fill="#000000" />
+    <!-- Wall Embrasure Slit -->
+    <rect x="194" y="180" width="8" height="18" rx="1" fill="#000000" />
+    </mask>
+  </defs>
+  <g mask="url(#town-cutout-mask-2)">
+
+    <!-- Perimeter Wall & Watchtower Base -->
+    <path d="M 38,224 L 218,224 L 218,168 L 180,168 L 180,118 L 132,118 L 132,152 L 82,152 L 82,176 L 38,176 Z" fill="#ffffff" />
+    <!-- Watchtower Battlements -->
+    <path d="M 128,118 L 184,118 L 184,98 L 174,98 L 174,106 L 164,106 L 164,98 L 152,98 L 152,106 L 142,106 L 142,98 L 128,98 Z" fill="#ffffff" />
+    <!-- Secondary Building Roof -->
+    <polygon points="82,152 32,176 40,180 82,158 132,158 132,152" fill="#ffffff" />
+    <!-- Wall Crenellations -->
+    <rect x="42" y="170" width="8" height="6" fill="#ffffff" />
+    <rect x="60" y="170" width="8" height="6" fill="#ffffff" />
+    <rect x="190" y="162" width="8" height="6" fill="#ffffff" />
+    <rect x="206" y="162" width="8" height="6" fill="#ffffff" />
+  </g>
+</svg>

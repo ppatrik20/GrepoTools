@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g fill="#ffffff">
+    <!-- Outer stone foundation ring with transparent channel -->
+    <path fill-rule="evenodd" d="M 128,44 A 84,84 0 1,0 128,212 A 84,84 0 1,0 128,44 Z M 128,62 A 66,66 0 1,0 128,194 A 66,66 0 1,0 128,62 Z" />
+    <!-- Inner stone hub ring with transparent mooring center pool -->
+    <path fill-rule="evenodd" d="M 128,90 A 38,38 0 1,0 128,166 A 38,38 0 1,0 128,90 Z M 128,110 A 18,18 0 1,0 128,146 A 18,18 0 1,0 128,110 Z" />
+    <!-- Radial cardinal mooring cleats -->
+    <rect x="122" y="32" width="12" height="24" rx="3" />
+    <rect x="122" y="200" width="12" height="24" rx="3" />
+    <rect x="32" y="122" width="24" height="12" rx="3" />
+    <rect x="200" y="122" width="24" height="12" rx="3" />
+    <!-- Diagonal mooring cleats -->
+    <rect x="58" y="58" width="12" height="20" rx="2" transform="rotate(-45 64 68)" />
+    <rect x="186" y="58" width="12" height="20" rx="2" transform="rotate(45 192 68)" />
+    <rect x="58" y="178" width="12" height="20" rx="2" transform="rotate(45 64 188)" />
+    <rect x="186" y="178" width="12" height="20" rx="2" transform="rotate(-45 192 188)" />
+  </g>
+</svg>

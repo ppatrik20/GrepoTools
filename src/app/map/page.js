@@ -977,9 +977,9 @@ export default function WorldMap() {
             });
           }}
           interactiveLayerIds={[
-            "town-points", "town-sprites", "town-flags", 
+            "town-sprites", "town-highlight-aura", "town-flags", 
             "islands-points", "island-terrain-fill", "rock-terrain-fill", 
-            "empty-slots-points", "empty-slots-sprites",
+            "empty-slots-sprites",
             "ghost-radar-markers", "siege-radar-markers", "inactive-farm-markers",
             "tactical-pin-markers", "island-halos-ring", "enemy-beachheads-point"
           ]}
@@ -1836,26 +1836,29 @@ export default function WorldMap() {
               <Layer
                 id="empty-slots-sprites"
                 type="symbol"
-                minzoom={7.2}
+                minzoom={6.8}
                 layout={{
                   "icon-image": "empty_slot",
                   "icon-size": [
-                    "interpolate", ["exponential", 2], ["zoom"],
-                    7.2, 0.08,
-                    8.5, 0.16,
-                    9.5, 0.32,
-                    10.5, 0.64,
-                    11.5, 1.28
+                    "interpolate", ["linear"], ["zoom"],
+                    6.8, 0.08,
+                    8.0, 0.14,
+                    9.5, 0.24,
+                    10.5, 0.38
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
                   "icon-anchor": "center"
                 }}
                 paint={{
+                  "icon-color": "#64748b",
+                  "icon-halo-color": "#0b101e",
+                  "icon-halo-width": 1.5,
+                  "icon-halo-blur": 0.5,
                   "icon-opacity": [
                     "interpolate", ["linear"], ["zoom"],
-                    7.2, 0.6,
-                    8.5, 0.9
+                    6.8, 0.65,
+                    8.5, 0.95
                   ]
                 }}
               />
@@ -2090,64 +2093,118 @@ export default function WorldMap() {
           {/* Towns Layer */}
           {townsData && (
             <Source id="towns-source" type="geojson" data={townsData}>
-              {/* Unclustered Points sized by Town Stage (Zoom 5.5 to 6.8) */}
-              <Layer 
-                id="town-points"
-                type="circle"
-                minzoom={5.5}
-                maxzoom={6.8}
-                paint={{
-                  "circle-color": [
-                    "case",
-                    ["has", "highlightColor"], ["get", "highlightColor"],
-                    ["get", "townColor"]
-                  ],
-                  "circle-radius": [
-                    "interpolate", ["linear"], ["zoom"],
-                    3.5, ["case", ["has", "highlightColor"], 4, ["+", 1.5, ["*", ["coalesce", ["get", "stage"], 1], 0.4]]],
-                    5.5, ["case", ["has", "highlightColor"], 7, ["+", 2.5, ["*", ["coalesce", ["get", "stage"], 1], 0.8]]],
-                    6.8, ["case", ["has", "highlightColor"], 12, ["+", 4, ["*", ["coalesce", ["get", "stage"], 1], 1.2]]]
-                  ],
-                  "circle-opacity": 0.9,
-                  "circle-stroke-width": ["case", ["has", "highlightColor"], 2, 1],
-                  "circle-stroke-color": ["case", ["has", "highlightColor"], "#ffffff", "#0b101e"]
-                }}
-              />
-
-              {/* High-Resolution 3D Town Sprites (Zoom >= 6.5) */}
+              {/* Highlight Aura for Selected/Tracked Towns (Zoom >= 4.8) */}
               <Layer
-                id="town-sprites"
+                id="town-highlight-aura"
                 type="symbol"
-                minzoom={6.5}
+                minzoom={4.8}
+                filter={["has", "highlightColor"]}
                 layout={{
                   "icon-image": [
-                    "match", ["get", "stage"],
-                    5, "town_5",
-                    4, "town_4",
-                    3, "town_3",
-                    2, "town_2",
-                    1, "town_1",
-                    "town_1"
+                    "case",
+                    ["==", ["get", "isGhost"], true], "town_ghost",
+                    ["match", ["get", "stage"],
+                      5, "town_5",
+                      4, "town_4",
+                      3, "town_3",
+                      2, "town_2",
+                      1, "town_1",
+                      "town_1"
+                    ]
                   ],
                   "icon-size": [
-                    "interpolate", ["exponential", 2], ["zoom"],
-                    6.5, 0.085,
-                    7.5, 0.17,
-                    8.5, 0.34,
-                    9.5, 0.68,
-                    10.0, 0.96
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 0.08,
+                    5.5, 0.12,
+                    6.5, 0.18,
+                    7.5, 0.28,
+                    8.5, 0.42,
+                    10.0, 0.68
                   ],
                   "icon-allow-overlap": true,
                   "icon-ignore-placement": true,
                   "icon-anchor": "bottom"
                 }}
+                paint={{
+                  "icon-color": ["get", "highlightColor"],
+                  "icon-halo-color": "#ffffff",
+                  "icon-halo-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 2.0,
+                    7.0, 3.5,
+                    10.0, 5.0
+                  ],
+                  "icon-halo-blur": 2.0,
+                  "icon-opacity": 0.85
+                }}
               />
 
-              {/* Dynamic Alliance Flag Badge (Zoom >= 6.8) */}
+              {/* Dynamic Outlined SVG Town Icons - Replaces Generic Dots across all visible zooms (Zoom >= 4.8) */}
+              <Layer
+                id="town-sprites"
+                type="symbol"
+                minzoom={4.8}
+                layout={{
+                  "icon-image": [
+                    "case",
+                    ["==", ["get", "isGhost"], true], "town_ghost",
+                    ["match", ["get", "stage"],
+                      5, "town_5",
+                      4, "town_4",
+                      3, "town_3",
+                      2, "town_2",
+                      1, "town_1",
+                      "town_1"
+                    ]
+                  ],
+                  "icon-size": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 0.06,
+                    5.5, 0.09,
+                    6.5, 0.14,
+                    7.5, 0.22,
+                    8.5, 0.34,
+                    10.0, 0.55
+                  ],
+                  "icon-allow-overlap": true,
+                  "icon-ignore-placement": true,
+                  "icon-anchor": "bottom"
+                }}
+                paint={{
+                  "icon-color": [
+                    "case",
+                    ["==", ["get", "isGhost"], true], "#94a3b8",
+                    ["has", "highlightColor"], ["get", "highlightColor"],
+                    ["get", "townColor"]
+                  ],
+                  "icon-halo-color": [
+                    "case",
+                    ["has", "highlightColor"], "#ffffff",
+                    ["==", ["get", "isGhost"], true], "#0f172a",
+                    "#0b101e"
+                  ],
+                  "icon-halo-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 1.0,
+                    6.5, 1.4,
+                    8.5, 2.0,
+                    10.0, 2.6
+                  ],
+                  "icon-halo-blur": 0.5,
+                  "icon-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    4.8, 0.85,
+                    5.5, 0.95,
+                    6.5, 1.0
+                  ]
+                }}
+              />
+
+              {/* Dynamic Alliance Flag Badge (Zoom >= 7.2) */}
               <Layer
                 id="town-flags"
                 type="circle"
-                minzoom={6.8}
+                minzoom={7.2}
                 paint={{
                   "circle-color": [
                     "case",
@@ -2156,13 +2213,13 @@ export default function WorldMap() {
                   ],
                   "circle-radius": [
                     "interpolate", ["linear"], ["zoom"],
-                    6.8, 3.5,
-                    8.5, 5.5,
-                    10.0, 8
+                    7.2, 3.5,
+                    8.5, 5.0,
+                    10.0, 7.5
                   ],
                   "circle-stroke-width": 1.5,
                   "circle-stroke-color": "#ffffff",
-                  "circle-translate": [0, -14]
+                  "circle-translate": [0, -16]
                 }}
               />
 

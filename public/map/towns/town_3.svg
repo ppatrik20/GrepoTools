@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="town-cutout-mask-3">
+      <rect width="256" height="256" fill="#ffffff" />
+
+    <!-- Colonnade Column Gaps -->
+    <rect x="106" y="140" width="6" height="28" fill="#000000" />
+    <rect x="120" y="140" width="6" height="28" fill="#000000" />
+    <rect x="134" y="140" width="6" height="28" fill="#000000" />
+    <rect x="144" y="140" width="6" height="28" fill="#000000" />
+    <!-- Main City Arched Gate -->
+    <path d="M 48,182 Q 64,168 80,182 L 80,224 L 48,224 Z" fill="#000000" />
+    <!-- Citadel Tower Embrasure -->
+    <rect x="176" y="116" width="8" height="20" rx="2" fill="#000000" />
+    <!-- Lower Rampart Embrasures -->
+    <rect x="180" y="178" width="12" height="16" rx="1" fill="#000000" />
+    <rect x="204" y="178" width="12" height="16" rx="1" fill="#000000" />
+    </mask>
+  </defs>
+  <g mask="url(#town-cutout-mask-3)">
+
+    <!-- Tiered Stone Citadel Base -->
+    <path d="M 28,224 L 228,224 L 228,162 L 202,162 L 202,104 L 158,104 L 158,136 L 96,136 L 96,168 L 28,168 Z" fill="#ffffff" />
+    <!-- Citadel Acropolis Tower Battlements -->
+    <path d="M 154,104 L 206,104 L 206,84 L 198,84 L 198,90 L 188,90 L 188,84 L 176,84 L 176,90 L 166,90 L 166,84 L 154,84 Z" fill="#ffffff" />
+    <!-- Classical Colonnade Facade (Temple/Council Hall) -->
+    <polygon points="96,136 158,136 127,106" fill="#ffffff" />
+  </g>
+</svg>

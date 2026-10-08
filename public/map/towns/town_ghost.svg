@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="town-cutout-mask-ghost">
+      <rect width="256" height="256" fill="#ffffff" />
+
+    <!-- Broken pediment gap -->
+    <polygon points="82,96 110,82 144,86 152,96" fill="#000000" />
+    <!-- Fallen & Broken Columns -->
+    <rect x="78" y="106" width="7" height="36" fill="#000000" />
+    <path d="M 96,106 L 104,106 L 104,126 L 110,138 L 96,138 Z" fill="#000000" />
+    <rect x="132" y="106" width="7" height="20" fill="#000000" />
+    <rect x="150" y="106" width="7" height="44" fill="#000000" />
+    <!-- Crumbled Rubble & Breaches in Ramparts -->
+    <path d="M 100,172 L 112,160 L 116,186 L 128,174 L 144,224 L 124,224 L 110,190 L 102,224 L 96,224 Z" fill="#000000" />
+    <path d="M 40,180 L 52,172 L 48,200 L 36,200 Z" fill="#000000" />
+    <path d="M 184,180 L 196,170 L 208,196 L 180,196 Z" fill="#000000" />
+    </mask>
+  </defs>
+  <g mask="url(#town-cutout-mask-ghost)">
+
+    <!-- Fractured Ruined Acropolis Foundation -->
+    <path d="M 24,224 L 232,224 L 232,178 L 208,178 L 200,138 L 180,144 L 172,110 L 144,106 L 132,132 L 92,132 L 84,164 L 24,164 Z" fill="#ffffff" />
+    <!-- Crumbled Broken Temple Pediment -->
+    <path d="M 68,102 L 108,76 L 118,90 L 140,64 L 160,102 Z" fill="#ffffff" />
+  </g>
+</svg>

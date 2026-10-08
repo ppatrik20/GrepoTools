@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="town-cutout-mask-5">
+      <rect width="256" height="256" fill="#ffffff" />
+
+    <!-- Inner Pediment Tympanum Relief Cutout -->
+    <polygon points="74,64 182,64 128,36" fill="#000000" />
+    <!-- Monumental Acropolis Colonnade Column Gaps (8 columns) -->
+    <rect x="72" y="72" width="6" height="52" fill="#000000" />
+    <rect x="86" y="72" width="6" height="52" fill="#000000" />
+    <rect x="100" y="72" width="6" height="52" fill="#000000" />
+    <rect x="114" y="72" width="6" height="52" fill="#000000" />
+    <rect x="136" y="72" width="6" height="52" fill="#000000" />
+    <rect x="150" y="72" width="6" height="52" fill="#000000" />
+    <rect x="164" y="72" width="6" height="52" fill="#000000" />
+    <rect x="178" y="72" width="6" height="52" fill="#000000" />
+    <!-- Grand Propylaea / Amphitheatre Arch Gate -->
+    <path d="M 102,166 Q 128,144 154,166 L 154,224 L 102,224 Z" fill="#000000" />
+    <!-- Monumental Terrace & Archway Arcades -->
+    <path d="M 48,168 Q 64,154 80,168 L 80,208 L 48,208 Z" fill="#000000" />
+    <path d="M 176,168 Q 192,154 208,168 L 208,208 L 176,208 Z" fill="#000000" />
+    <rect x="22" y="168" width="6" height="24" rx="1" fill="#000000" />
+    <rect x="228" y="168" width="6" height="24" rx="1" fill="#000000" />
+    </mask>
+  </defs>
+  <g mask="url(#town-cutout-mask-5)">
+
+    <!-- Grand Acropolis Plateau & Multi-tiered Ramparts -->
+    <path d="M 14,224 L 242,224 L 242,150 L 220,150 L 220,92 L 192,92 L 192,68 L 64,68 L 64,92 L 36,92 L 36,150 L 14,150 Z" fill="#ffffff" />
+    <!-- Monumental Pediment (Grand Parthenon Acropolis) -->
+    <polygon points="58,68 198,68 128,30" fill="#ffffff" />
+    <!-- Twin Bastion Citadel Towers -->
+    <path d="M 30,92 L 64,92 L 64,78 L 58,78 L 58,84 L 50,84 L 50,78 L 42,78 L 42,84 L 34,84 L 34,78 L 30,78 Z" fill="#ffffff" />
+    <path d="M 192,92 L 226,92 L 226,78 L 222,78 L 222,84 L 214,84 L 214,78 L 206,78 L 206,84 L 198,84 L 198,78 L 192,78 Z" fill="#ffffff" />
+  </g>
+</svg>

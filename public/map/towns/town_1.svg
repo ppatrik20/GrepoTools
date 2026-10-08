@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="town-cutout-mask-1">
+      <rect width="256" height="256" fill="#ffffff" />
+
+    <!-- Door cutout (100% transparent opening) -->
+    <path d="M 116,170 Q 128,158 140,170 L 140,224 L 116,224 Z" fill="#000000" />
+    <!-- Window cutout -->
+    <rect x="84" y="164" width="16" height="18" rx="2" fill="#000000" />
+    <!-- Palisade arrow slits -->
+    <rect x="46" y="194" width="4" height="14" rx="1" fill="#000000" />
+    <rect x="206" y="194" width="4" height="14" rx="1" fill="#000000" />
+    </mask>
+  </defs>
+  <g mask="url(#town-cutout-mask-1)">
+
+    <!-- Base Foundation & Cottage -->
+    <path d="M 60,224 L 196,224 L 196,156 L 128,110 L 60,156 Z" fill="#ffffff" />
+    <!-- Thatch/Tile Roof Highlights & Outlines -->
+    <polygon points="128,96 52,148 64,152 128,108 192,152 204,148" fill="#ffffff" />
+    <rect x="154" y="106" width="16" height="28" rx="2" fill="#ffffff" />
+    <!-- Perimeter Palisade Walls -->
+    <path d="M 36,224 L 60,224 L 60,188 L 48,180 L 36,188 Z" fill="#ffffff" />
+    <path d="M 196,224 L 220,224 L 220,188 L 208,180 L 196,188 Z" fill="#ffffff" />
+  </g>
+</svg>
