@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Swords, Shield, ExternalLink, Trash2, ArrowRight, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import { PageHeader, Card, CardHeader, CardTitle, CardContent, Badge, Button, EmptyState } from '@/components/ui';
 
 export default function ReportsPage() {
   const { activeWorldId, activeWorld } = useApp();
@@ -58,113 +59,126 @@ export default function ReportsPage() {
     }
   };
 
+  const headerBadges = [
+    {
+      text: `World: ${activeWorld?.name || activeWorldId?.toUpperCase() || ''}`,
+      variant: 'primary',
+      mono: true,
+    }
+  ];
+
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="border-b border-slate-800 pb-5">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-mono bg-primary/20 text-primary border border-primary/30 px-2 py-0.5 rounded">
-            World: {activeWorld?.name || activeWorldId?.toUpperCase() || ''}
-          </span>
-        </div>
-        <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">
-          <FileText size={28} className="text-primary" /> Battle Report Intelligence & Archive
-        </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Ingest GRCT published reports or paste raw in-game BBCodes to extract loot, troop losses, and player records.
-        </p>
-      </div>
+      {/* Standardized Hero Header */}
+      <PageHeader
+        title="Battle Report Intelligence & Archive"
+        subtitle="Ingest GRCT published reports or paste raw in-game BBCodes to extract loot, troop losses, and player records."
+        icon={FileText}
+        badges={headerBadges}
+      />
 
       {/* Parsing Card */}
-      <div className="glass-panel p-6 bg-slate-900/90 rounded-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Swords size={18} className="text-accent" /> Ingest New Battle Report
-          </h2>
-          <div className="flex gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800">
-            <button
+      <Card>
+        <CardHeader className="flex-col sm:flex-row items-start sm:items-center gap-3">
+          <CardTitle icon={Swords}>
+            Ingest New Battle Report
+          </CardTitle>
+          <div className="flex gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <Button
+              size="xs"
+              variant={inputMode === 'url' ? 'primary' : 'ghost'}
               onClick={() => setInputMode('url')}
-              className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
-                inputMode === 'url' ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'
-              }`}
             >
               GRCT URL
-            </button>
-            <button
+            </Button>
+            <Button
+              size="xs"
+              variant={inputMode === 'raw' ? 'primary' : 'ghost'}
               onClick={() => setInputMode('raw')}
-              className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
-                inputMode === 'raw' ? 'bg-primary text-white' : 'text-slate-400 hover:text-white'
-              }`}
             >
               Raw Text / BBCode
-            </button>
+            </Button>
           </div>
-        </div>
+        </CardHeader>
 
-        <form onSubmit={handleScrape} className="flex flex-col gap-3">
-          {inputMode === 'url' ? (
-            <input 
-              type="url" 
-              placeholder="Paste GRCT Report URL (e.g. https://www.grcrt.net/repview.php?rep=...)" 
-              className="input-field"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              required
-            />
-          ) : (
-            <textarea
-              placeholder="Paste in-game report raw text or BBCode here..."
-              className="input-field min-h-[100px] font-mono text-xs"
-              value={rawText}
-              onChange={e => setRawText(e.target.value)}
-              required
-            />
+        <CardContent>
+          <form onSubmit={handleScrape} className="flex flex-col gap-3">
+            {inputMode === 'url' ? (
+              <input 
+                type="url" 
+                placeholder="Paste GRCT Report URL (e.g. https://www.grcrt.net/repview.php?rep=...)" 
+                className="input-field"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                required
+              />
+            ) : (
+              <textarea 
+                placeholder="Paste in-game report raw text or BBCode here..." 
+                className="input-field min-h-[100px] font-mono text-xs"
+                value={rawText}
+                onChange={e => setRawText(e.target.value)}
+                required
+              />
+            )}
+
+            <div className="flex justify-end pt-1">
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={loading}
+              >
+                Save Report to Archive
+              </Button>
+            </div>
+          </form>
+
+          {error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-300 text-xs rounded-xl flex items-center gap-2">
+              <AlertCircle size={15} className="shrink-0 text-red-400" />
+              <span>{error}</span>
+            </div>
           )}
 
-          <div className="flex justify-end">
-            <button type="submit" className="btn btn-primary text-xs py-2 px-5" disabled={loading}>
-              {loading ? 'Parsing Battle...' : 'Save Report to Archive'}
-            </button>
-          </div>
-        </form>
-
-        {error && (
-          <div className="p-3 mt-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-2">
-            <AlertCircle size={15} className="shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {success && (
-          <div className="p-3 mt-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-center gap-2">
-            <CheckCircle2 size={15} className="shrink-0" />
-            <span>{success}</span>
-          </div>
-        )}
-      </div>
+          {success && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-center gap-2">
+              <CheckCircle2 size={15} className="shrink-0 text-emerald-400" />
+              <span>{success}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Reports Archive */}
       <div className="flex flex-col gap-4">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <Shield size={18} className="text-primary" /> Parsed Reports Archive ({reports.length})
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Shield size={18} className="text-blue-400" /> Parsed Reports Archive
+          </h2>
+          <Badge variant="neutral" mono size="sm">
+            {reports.length} Reports
+          </Badge>
+        </div>
 
         {reports.length === 0 ? (
-          <div className="glass-panel text-center py-12">
-            <p className="text-slate-400 text-sm">No battle reports archived yet for this world.</p>
-          </div>
+          <EmptyState
+            icon={FileText}
+            title="No Battle Reports Archived"
+            description="Archive in-game battle reports using the GRCT URL parser or BBCode ingest above to maintain alliance battle intelligence."
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {reports.map(report => (
-              <div 
+              <Card 
                 key={report.id} 
-                className="glass-panel p-5 bg-slate-900/70 border border-slate-800 rounded-2xl flex flex-col justify-between"
+                className="p-5 flex flex-col justify-between"
               >
                 <div>
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <div className="text-sm font-bold text-white flex items-center gap-2">
-                        <span className="text-rose-400 font-bold">{report.attacker}</span>
+                        <span className="text-red-400 font-bold">{report.attacker}</span>
                         <span className="text-slate-500 text-xs">VS</span>
                         <span className="text-blue-400 font-bold">{report.defender}</span>
                       </div>
@@ -179,7 +193,7 @@ export default function ReportsPage() {
                         href={`https://www.grcrt.net/repview.php?rep=${report.originalId}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-primary hover:text-primary-hover p-1"
+                        className="text-blue-400 hover:text-blue-300 p-1"
                         title="View Original GRCT Report"
                       >
                         <ExternalLink size={15} />
@@ -206,17 +220,17 @@ export default function ReportsPage() {
                   )}
 
                   {report.rawText && (
-                    <div className="mt-2 text-[11px] text-slate-400 line-clamp-2 font-mono bg-slate-950/30 p-2 rounded border border-slate-800/50">
+                    <div className="mt-2 text-[11px] text-slate-400 line-clamp-2 font-mono bg-slate-950/30 p-2 rounded-lg border border-slate-800/50">
                       {report.rawText}
                     </div>
                   )}
                 </div>
 
-                <div className="border-t border-slate-800/80 mt-3 pt-2.5 flex justify-between items-center text-xs text-slate-500">
-                  <span>ID: {report.id}</span>
-                  <span className="font-mono">World: {report.worldId?.toUpperCase()}</span>
+                <div className="border-t border-slate-800/80 mt-3 pt-2.5 flex justify-between items-center text-xs text-slate-500 font-mono">
+                  <span>ID: #{report.id}</span>
+                  <span>World: {report.worldId?.toUpperCase()}</span>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}

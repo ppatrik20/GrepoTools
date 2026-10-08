@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { MapPin, Copy, X, Swords, Users, ExternalLink, Activity, User } from 'lucide-react';
+import { Modal, Button, Badge } from '@/components/ui';
 
 export default function IslandModal({ 
   islandData, 
@@ -13,14 +14,6 @@ export default function IslandModal({
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copiedMsg, setCopiedMsg] = useState('');
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
 
   useEffect(() => {
     async function fetchDetails() {
@@ -67,55 +60,45 @@ export default function IslandModal({
   }
 
   return (
-    <div 
-      className="grepo-modal-backdrop animate-fade-in"
-      onClick={(e) => { if(e.target === e.currentTarget) onClose(); }}
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      maxWidth="3xl"
     >
-      <div 
-        className="glass-panel w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl relative flex flex-col my-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        
-        {/* Close Button */}
-        <button 
-          onClick={onClose} 
-          className="absolute top-4 right-4 p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors z-10"
-          title="Close (Esc)"
-        >
-          <X size={18} />
-        </button>
-
+      <div className="flex flex-col gap-4 text-white">
         {/* Header */}
-        <div className="border-b border-slate-800 pb-4 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-8">
+        <div className="border-b border-slate-800 pb-4 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                <MapPin size={22} className="text-primary" /> Island ({islandData.x}, {islandData.y})
+                <MapPin size={22} className="text-blue-400" /> Island ({islandData.x}, {islandData.y})
               </h2>
-              <span className="text-xs font-mono bg-primary/20 text-primary border border-primary/30 px-2 py-0.5 rounded">
+              <Badge variant="primary" mono size="xs">
                 World {worldId.toUpperCase()}
-              </span>
+              </Badge>
             </div>
-            <div className="text-xs text-slate-400 mt-1">
-              Slots: <strong className="text-slate-200">{islandData.colonizedCount}</strong> / {islandData.availableTowns + islandData.colonizedCount} • Buffs: <span className="text-emerald-400">+{islandData.resourcePlus}</span> / <span className="text-rose-400">-{islandData.resourceMinus}</span>
+            <div className="text-xs text-slate-400 mt-1 font-mono">
+              Slots: <strong className="text-slate-200">{islandData.colonizedCount}</strong> / {islandData.availableTowns + islandData.colonizedCount} • Buffs: <span className="text-emerald-400">+{islandData.resourcePlus}</span> / <span className="text-red-400">-{islandData.resourceMinus}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button 
-              type="button"
+            <Button 
+              size="xs"
+              variant="secondary"
               onClick={handleCopyCoords} 
-              className="btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 px-3 rounded-lg border border-slate-700 flex items-center gap-1.5"
+              icon={Copy}
             >
-              <Copy size={13} /> Copy [island]
-            </button>
-            <button 
-              type="button"
+              Copy [island]
+            </Button>
+            <Button 
+              size="xs"
+              variant="primary"
               onClick={handleCopyBBCode} 
-              className="btn text-xs bg-primary/20 hover:bg-primary/30 text-primary py-1.5 px-3 rounded-lg border border-primary/40 flex items-center gap-1.5"
+              icon={Copy}
             >
-              <Copy size={13} /> Copy All Towns
-            </button>
+              Copy All Towns
+            </Button>
           </div>
         </div>
 
@@ -289,8 +272,7 @@ export default function IslandModal({
             <div className="py-8 text-center text-slate-500 text-sm">No colonized towns on this island.</div>
           )}
         </div>
-
       </div>
-    </div>
+    </Modal>
   );
 }

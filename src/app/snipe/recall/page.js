@@ -34,6 +34,28 @@ function RecallSnipeContent() {
   // Autocomplete states for adding target city
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedTownId, setSelectedTownId] = useState(null);
+  const [citySearchResults, setCitySearchResults] = useState([]);
+  const [isSearchingCity, setIsSearchingCity] = useState(false);
+  const [cityFocusedIndex, setCityFocusedIndex] = useState(-1);
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
+  const cityInputRef = useRef(null);
+  const cityDropdownRef = useRef(null);
+
+  // Audio context for chirps
+  const audioCtxRef = useRef(null);
+  const playedChirpsRef = useRef({});
+
+  // Input states for new movement
+  const [movAttacker, setMovAttacker] = useState('');
+  const [movAttackerId, setMovAttackerId] = useState(null);
+  const [movType, setMovType] = useState('attack');
+  const [movTime, setMovTime] = useState('');
+  const [attackerSearchResults, setAttackerSearchResults] = useState([]);
+  const [isSearchingAttacker, setIsSearchingAttacker] = useState(false);
+  const [attackerFocusedIndex, setAttackerFocusedIndex] = useState(-1);
+  const [showAttackerDropdown, setShowAttackerDropdown] = useState(false);
+  const attackerInputRef = useRef(null);
+  const movTimeInputRef = useRef(null);
 
   // Ingest query parameters from Route Planner (/snipe/recall?targetTownId=...&originTownId=...)
   useEffect(() => {
@@ -75,28 +97,6 @@ function RecallSnipeContent() {
 
     ingestParams();
   }, [targetTownId, originTownId, activeWorldId, activeWorld]);
-  const [citySearchResults, setCitySearchResults] = useState([]);
-  const [isSearchingCity, setIsSearchingCity] = useState(false);
-  const [cityFocusedIndex, setCityFocusedIndex] = useState(-1);
-  const [showCityDropdown, setShowCityDropdown] = useState(false);
-  const cityInputRef = useRef(null);
-  const cityDropdownRef = useRef(null);
-
-  // Audio context for chirps
-  const audioCtxRef = useRef(null);
-  const playedChirpsRef = useRef({});
-
-  // Input states for new movement
-  const [movAttacker, setMovAttacker] = useState('');
-  const [movAttackerId, setMovAttackerId] = useState(null);
-  const [movType, setMovType] = useState('attack');
-  const [movTime, setMovTime] = useState('');
-  const [attackerSearchResults, setAttackerSearchResults] = useState([]);
-  const [isSearchingAttacker, setIsSearchingAttacker] = useState(false);
-  const [attackerFocusedIndex, setAttackerFocusedIndex] = useState(-1);
-  const [showAttackerDropdown, setShowAttackerDropdown] = useState(false);
-  const attackerInputRef = useRef(null);
-  const movTimeInputRef = useRef(null);
 
   // Custom gap minutes input per gap ID
   const [customMins, setCustomMins] = useState({});
@@ -145,11 +145,26 @@ function RecallSnipeContent() {
     LocalOperationsAdapter.setRecallGroups(activeWorldId, groups);
   }, [groups, activeWorldId]);
 
+  // Cleanup Web Audio Context on unmount to prevent audio channel memory leaks
+  useEffect(() => {
+    return () => {
+      if (audioCtxRef.current && typeof audioCtxRef.current.close === 'function') {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+    };
+  }, []);
+
   // Tick every second & trigger audio chirps at T-10, T-5, T-3, T-2, T-1, T-0
   useEffect(() => {
     const interval = setInterval(() => {
       const currentTime = new Date();
       setNow(currentTime);
+
+      // Prevent unbounded memory accumulation in long-running sessions
+      if (Object.keys(playedChirpsRef.current).length > 200) {
+        playedChirpsRef.current = {};
+      }
 
       const activeGrp = groups.find(g => g.id === activeGroupId);
       if (activeGrp && activeGrp.plans) {

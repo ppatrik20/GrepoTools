@@ -4,12 +4,25 @@ import Link from 'next/link';
 import { useApp } from '@/context/AppContext';
 import { 
   Target, Activity, Map as MapIcon, ShieldAlert, Crosshair, MapPin, 
-  Globe, User, ArrowUpRight, ArrowDownRight, RefreshCw, Plus, Clock, Swords
+  Globe, User, ArrowUpRight, ArrowDownRight, RefreshCw, Plus, Clock, Swords,
+  Trophy, Shield, ExternalLink
 } from 'lucide-react';
 import { 
   LocalOperationsAdapter, 
   RemoteOperationsAdapter 
 } from '@/lib/operations/OperationsStorage';
+import { 
+  Button, 
+  Card, 
+  CardHeader, 
+  CardTitle, 
+  CardContent, 
+  StatCard, 
+  Badge, 
+  PageHeader, 
+  SkeletonStatGrid,
+  EmptyState 
+} from '@/components/ui';
 
 export default function CommandCenter() {
   const { activeWorld, activeWorldId, activePlayer, masterData, loadingPlayer, switchPlayer } = useApp();
@@ -34,38 +47,46 @@ export default function CommandCenter() {
     setActiveSnipes(loadedGroups);
   }, [activeWorldId]);
 
+  const headerBadges = [
+    {
+      text: `World: ${activeWorld?.name || activeWorldId?.toUpperCase()} (${activeWorld?.speed || 1}x • ${activeWorld?.worldType?.toUpperCase() || 'REVOLT'})`,
+      variant: 'primary',
+      mono: true,
+    },
+    ...(activePlayer ? [{
+      text: `Player: ${activePlayer.name}`,
+      variant: 'accent',
+      mono: true,
+      dot: true,
+    }] : [])
+  ];
+
   return (
     <div className="flex flex-col gap-6">
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-slate-800 pb-5 gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="bg-primary/10 text-primary text-xs font-mono px-2.5 py-0.5 rounded-full border border-primary/20">
-              World: {activeWorld?.name || activeWorldId.toUpperCase()} ({activeWorld?.speed}x • {activeWorld?.worldType?.toUpperCase()})
-            </span>
-            {activePlayer && (
-              <span className="bg-accent/10 text-accent text-xs font-mono px-2.5 py-0.5 rounded-full border border-accent/20">
-                Player: {activePlayer.name}
-              </span>
-            )}
-          </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">Tactical Command Center</h1>
-          <p className="text-slate-400 text-sm mt-1">
-            {loadingPlayer ? "Loading empire intelligence..." :
-             activePlayer ? `Welcome back, Commander ${activePlayer.name}. All systems operational.` :
-             `No active player selected for ${activeWorldId.toUpperCase()}. Click the profile button above or select a player.`}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Link href="/snipe/recall" className="btn btn-primary">
-            <Crosshair size={16} /> New Snipe Plan
-          </Link>
-          <Link href="/map" className="btn bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
-            <MapIcon size={16} /> Open Map
-          </Link>
-        </div>
-      </div>
+      {/* Standardized Hero Header Banner */}
+      <PageHeader
+        title="Tactical Command Center"
+        subtitle={
+          loadingPlayer ? "Loading empire intelligence..." :
+          activePlayer ? `Welcome back, Commander ${activePlayer.name}. All systems operational.` :
+          `No active player selected for ${activeWorldId?.toUpperCase()}. Select a player above or in the scoreboard.`
+        }
+        badges={headerBadges}
+        actions={
+          <>
+            <Link href="/snipe/recall">
+              <Button variant="primary" size="md" icon={Crosshair}>
+                New Snipe Plan
+              </Button>
+            </Link>
+            <Link href="/map">
+              <Button variant="secondary" size="md" icon={MapIcon}>
+                Open Map
+              </Button>
+            </Link>
+          </>
+        }
+      />
 
       {/* Main 3-Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -74,210 +95,229 @@ export default function CommandCenter() {
         <div className="lg:col-span-2 flex flex-col gap-6">
           
           {/* Empire Summary Card */}
-          <div className="glass-panel">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Activity size={18} className="text-primary" /> Empire Status
-              </h2>
+          <Card>
+            <CardHeader>
+              <CardTitle icon={Activity}>
+                Empire Status
+              </CardTitle>
               {activePlayer && (
-                <span className="text-xs text-slate-400 font-mono">
+                <Badge variant="neutral" size="sm">
                   {activePlayer.alliance?.name ? `Alliance: ${activePlayer.alliance.name}` : 'Independent'}
-                </span>
+                </Badge>
               )}
-            </div>
+            </CardHeader>
 
-            {loadingPlayer ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 animate-pulse py-4">
-                <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-                <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-                <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-                <div className="h-16 bg-slate-800/60 rounded-xl"></div>
-              </div>
-            ) : activePlayer ? (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider">Total Points</div>
-                    <div className="text-2xl font-mono font-bold text-accent mt-0.5">
-                      {activePlayer.points?.toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider">Global Rank</div>
-                    <div className="text-2xl font-mono font-bold text-white mt-0.5">
-                      #{activePlayer.rank}
-                    </div>
-                  </div>
-                  <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider">Town Count</div>
-                    <div className="text-2xl font-mono font-bold text-primary mt-0.5">
-                      {activePlayer.townsList?.length || activePlayer.towns}
-                    </div>
-                  </div>
-                  <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider">Battle Points</div>
-                    <div className="text-2xl font-mono font-bold text-emerald-400 mt-0.5">
-                      {((activePlayer.abp || 0) + (activePlayer.dbp || 0)).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Recent Conquers vs Losses */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">
-                    <h3 className="text-xs font-semibold text-emerald-400 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
-                      <ArrowUpRight size={14} /> Recent Acquisitions
-                    </h3>
-                    {masterData?.recentConquers?.length > 0 ? (
-                      <ul className="flex flex-col gap-2 text-sm">
-                        {masterData.recentConquers.map(c => (
-                          <li key={c.id} className="flex justify-between items-center text-slate-300 p-2.5 bg-slate-900/60 rounded-lg">
-                            <span className="flex items-center gap-1.5 text-emerald-400">
-                              <MapPin size={13}/> Town #{c.townId}
-                            </span>
-                            <span className="font-mono text-xs text-slate-400">{c.townPoints?.toLocaleString()} pts</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-xs text-slate-500 py-3 text-center">No recent conquers recorded.</div>
-                    )}
+            <CardContent>
+              {loadingPlayer ? (
+                <SkeletonStatGrid count={4} />
+              ) : activePlayer ? (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                    <StatCard
+                      label="Total Points"
+                      value={activePlayer.points?.toLocaleString()}
+                      variant="accent"
+                      icon={Trophy}
+                    />
+                    <StatCard
+                      label="Global Rank"
+                      value={`#${activePlayer.rank}`}
+                      variant="default"
+                      icon={Activity}
+                    />
+                    <StatCard
+                      label="Town Count"
+                      value={activePlayer.townsList?.length || activePlayer.towns}
+                      variant="primary"
+                      icon={Shield}
+                    />
+                    <StatCard
+                      label="Battle Points"
+                      value={((activePlayer.abp || 0) + (activePlayer.dbp || 0)).toLocaleString()}
+                      variant="emerald"
+                      icon={Swords}
+                    />
                   </div>
 
-                  <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">
-                    <h3 className="text-xs font-semibold text-rose-400 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
-                      <ArrowDownRight size={14} /> Recent Losses
-                    </h3>
-                    {masterData?.recentLosses?.length > 0 ? (
-                      <ul className="flex flex-col gap-2 text-sm">
-                        {masterData.recentLosses.map(c => (
-                          <li key={c.id} className="flex justify-between items-center text-slate-300 p-2.5 bg-slate-900/60 rounded-lg">
-                            <span className="flex items-center gap-1.5 text-rose-400">
-                              <MapPin size={13}/> Town #{c.townId}
-                            </span>
-                            <span className="font-mono text-xs text-slate-400">{c.townPoints?.toLocaleString()} pts</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="text-xs text-slate-500 py-3 text-center">No recent losses recorded.</div>
-                    )}
+                  {/* Recent Conquers vs Losses */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                          <ArrowUpRight size={14} /> Recent Acquisitions
+                        </span>
+                        <Badge variant="emerald" size="xs">Gain</Badge>
+                      </div>
+                      {masterData?.recentConquers?.length > 0 ? (
+                        <ul className="flex flex-col gap-2 text-sm">
+                          {masterData.recentConquers.map(c => (
+                            <li key={c.id} className="flex justify-between items-center text-slate-300 p-2.5 bg-slate-900/60 rounded-lg border border-slate-800/50">
+                              <span className="flex items-center gap-1.5 text-emerald-400">
+                                <MapPin size={13}/> Town #{c.townId}
+                              </span>
+                              <span className="font-mono text-xs text-slate-400">{c.townPoints?.toLocaleString()} pts</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-xs text-slate-500 py-4 text-center">No recent conquers recorded.</div>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-semibold text-red-400 flex items-center gap-1.5 uppercase tracking-wider">
+                          <ArrowDownRight size={14} /> Recent Losses
+                        </span>
+                        <Badge variant="danger" size="xs">Loss</Badge>
+                      </div>
+                      {masterData?.recentLosses?.length > 0 ? (
+                        <ul className="flex flex-col gap-2 text-sm">
+                          {masterData.recentLosses.map(c => (
+                            <li key={c.id} className="flex justify-between items-center text-slate-300 p-2.5 bg-slate-900/60 rounded-lg border border-slate-800/50">
+                              <span className="flex items-center gap-1.5 text-red-400">
+                                <MapPin size={13}/> Town #{c.townId}
+                              </span>
+                              <span className="font-mono text-xs text-slate-400">{c.townPoints?.toLocaleString()} pts</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-xs text-slate-500 py-4 text-center">No recent losses recorded.</div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-8 bg-slate-950/40 rounded-xl border border-slate-800/60">
-                <p className="text-slate-400 text-sm mb-3">No active player profile selected for this world.</p>
-                <Link href="/stats" className="btn btn-primary text-xs">
-                  Browse Scoreboard & Pick Player
-                </Link>
-              </div>
-            )}
-          </div>
+                </>
+              ) : (
+                <EmptyState
+                  icon={User}
+                  title="No Active Player Profile"
+                  description="Select a player identity to unlock real-time empire monitoring, city specialization, and targeted defensive alerts."
+                  actionLabel="Browse Scoreboard & Select Player"
+                  onAction={() => {}}
+                  actionIcon={Trophy}
+                />
+              )}
+            </CardContent>
+          </Card>
 
           {/* Active Defense Operations Card */}
-          <div className="glass-panel">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <ShieldAlert size={18} className="text-amber-400" /> Active Operations & Defense Plans
-              </h2>
-              <Link href="/snipe/recall" className="text-xs text-primary hover:underline flex items-center gap-1">
+          <Card>
+            <CardHeader>
+              <CardTitle icon={ShieldAlert} className="text-amber-400">
+                Active Operations & Defense Plans
+              </CardTitle>
+              <Link href="/snipe/recall" className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
                 Open Planner →
               </Link>
-            </div>
+            </CardHeader>
 
-            {loadingOps ? (
-              <div className="py-6 text-center text-slate-500 text-sm animate-pulse">Loading operations...</div>
-            ) : activeSnipes.length > 0 || dbOperations.length > 0 ? (
-              <div className="flex flex-col gap-2.5">
-                {activeSnipes.map(snipe => (
-                  <Link 
-                    href="/snipe/recall" 
-                    key={snipe.id} 
-                    className="flex justify-between items-center p-3.5 bg-slate-950/60 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl transition-all"
-                  >
-                    <div>
-                      <div className="font-bold text-accent text-sm">{snipe.targetCity}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        {snipe.worldType?.toUpperCase()} • {snipe.movements?.length || 0} tracked incoming attacks
+            <CardContent>
+              {loadingOps ? (
+                <div className="py-6 text-center text-slate-500 text-sm animate-pulse">Loading operations...</div>
+              ) : activeSnipes.length > 0 || dbOperations.length > 0 ? (
+                <div className="flex flex-col gap-2.5">
+                  {activeSnipes.map(snipe => (
+                    <Link 
+                      href="/snipe/recall" 
+                      key={snipe.id} 
+                      className="flex justify-between items-center p-3.5 bg-slate-950/60 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl transition-all"
+                    >
+                      <div>
+                        <div className="font-bold text-indigo-400 text-sm">{snipe.targetCity}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {snipe.worldType?.toUpperCase()} • {snipe.movements?.length || 0} tracked incoming attacks
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-xs font-mono text-primary bg-primary/10 border border-primary/20 px-2.5 py-1 rounded-md">
-                      {snipe.plans?.length || 0} Snipes Planned
-                    </div>
-                  </Link>
-                ))}
+                      <Badge variant="primary" mono size="sm">
+                        {snipe.plans?.length || 0} Snipes Planned
+                      </Badge>
+                    </Link>
+                  ))}
 
-                {dbOperations.map(op => (
-                  <div 
-                    key={op.id}
-                    className="flex justify-between items-center p-3.5 bg-slate-950/40 border border-slate-800 rounded-xl"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-200 text-sm">{op.label}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        Target: {op.targetTown?.name || `#${op.targetTownId}`} • Send: {new Date(op.sendTime).toLocaleTimeString()}
+                  {dbOperations.map(op => (
+                    <div 
+                      key={op.id}
+                      className="flex justify-between items-center p-3.5 bg-slate-950/40 border border-slate-800 rounded-xl"
+                    >
+                      <div>
+                        <div className="font-bold text-slate-200 text-sm">{op.label}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          Target: {op.targetTown?.name || `#${op.targetTownId}`} • Send: {new Date(op.sendTime).toLocaleTimeString()}
+                        </div>
                       </div>
+                      <Badge variant="amber" mono size="xs">
+                        {op.status}
+                      </Badge>
                     </div>
-                    <span className="text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded font-mono">
-                      {op.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-6 bg-slate-950/30 rounded-xl text-slate-500 text-sm">
-                No active snipe operations or recall schedules.
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={Crosshair}
+                  title="No Active Operations"
+                  description="Deploy precision recall snipes or schedule multi-city offensive operations using the tactical planner."
+                />
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right Column: Quick Tactical Tools & Navigation Cards */}
         <div className="flex flex-col gap-4">
-          <Link href="/snipe/recall" className="glass-panel hover:border-accent/60 transition-all group block">
-            <h3 className="flex items-center gap-2 text-white group-hover:text-accent font-bold transition-colors">
-              <Crosshair size={18} className="text-accent" /> Precision Recall Sniper
-            </h3>
-            <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-              Bypass the ATR variance with exact midpoint cancel timings and audio countdowns.
-            </p>
+          <Link href="/snipe/recall" className="group">
+            <Card hoverEffect className="group-hover:border-indigo-500/50">
+              <h3 className="flex items-center gap-2 text-white group-hover:text-indigo-400 font-bold text-sm transition-colors">
+                <Crosshair size={18} className="text-indigo-400" /> Precision Recall Sniper
+              </h3>
+              <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
+                Bypass the ATR variance with exact midpoint cancel timings and audio countdowns.
+              </p>
+            </Card>
           </Link>
           
-          <Link href="/planner" className="glass-panel hover:border-primary/60 transition-all group block">
-            <h3 className="flex items-center gap-2 text-white group-hover:text-primary font-bold transition-colors">
-              <Target size={18} className="text-primary" /> City & Army Optimizer
-            </h3>
-            <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-              Specialization tags (`NO_LS`, `LO_TS`, `ND_BIR`, Myth), building demolition simulator, and transport capacity validation.
-            </p>
+          <Link href="/planner" className="group">
+            <Card hoverEffect className="group-hover:border-blue-500/50">
+              <h3 className="flex items-center gap-2 text-white group-hover:text-blue-400 font-bold text-sm transition-colors">
+                <Target size={18} className="text-blue-400" /> City & Army Optimizer
+              </h3>
+              <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
+                Specialization presets (NO_LS, LO_TS, ND_BIR, Mythic), building demolition simulator, and transport capacity checks.
+              </p>
+            </Card>
           </Link>
 
-          <Link href="/map" className="glass-panel hover:border-blue-400/60 transition-all group block">
-            <h3 className="flex items-center gap-2 text-white group-hover:text-blue-400 font-bold transition-colors">
-              <MapIcon size={18} className="text-blue-400" /> Strategic World Map
-            </h3>
-            <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-              Inspect island slots, alliance clusters, color overrides, and copy BBCode coordinates.
-            </p>
+          <Link href="/map" className="group">
+            <Card hoverEffect className="group-hover:border-cyan-500/50">
+              <h3 className="flex items-center gap-2 text-white group-hover:text-cyan-400 font-bold text-sm transition-colors">
+                <MapIcon size={18} className="text-cyan-400" /> Strategic World Map
+              </h3>
+              <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
+                Interactive MapLibre canvas with political Voronoi dominance, radar scans, tactical pinboard, and coalition overlays.
+              </p>
+            </Card>
           </Link>
 
-          <Link href="/stats" className="glass-panel hover:border-emerald-400/60 transition-all group block">
-            <h3 className="flex items-center gap-2 text-white group-hover:text-emerald-400 font-bold transition-colors">
-              <Activity size={18} className="text-emerald-400" /> Scoreboard & Momentum
-            </h3>
-            <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-              24h/7d player & alliance rankings, hourly delta charts, and pinned entity tracking.
-            </p>
+          <Link href="/stats" className="group">
+            <Card hoverEffect className="group-hover:border-emerald-500/50">
+              <h3 className="flex items-center gap-2 text-white group-hover:text-emerald-400 font-bold text-sm transition-colors">
+                <Activity size={18} className="text-emerald-400" /> Scoreboard & Momentum
+              </h3>
+              <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
+                24h/7d player & alliance rankings, hourly delta trends, and custom pinned operative tracking.
+              </p>
+            </Card>
           </Link>
 
-          <Link href="/world" className="glass-panel hover:border-slate-500 transition-all group block">
-            <h3 className="flex items-center gap-2 text-slate-300 group-hover:text-white font-bold transition-colors">
-              <Globe size={18} className="text-slate-400" /> Admin World Center
-            </h3>
-            <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-              Configure game worlds, manage server sync intervals, and monitor data ingestion.
-            </p>
+          <Link href="/world" className="group">
+            <Card hoverEffect className="group-hover:border-slate-500">
+              <h3 className="flex items-center gap-2 text-slate-300 group-hover:text-white font-bold text-sm transition-colors">
+                <Globe size={18} className="text-slate-400" /> Admin World Center
+              </h3>
+              <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
+                Configure game worlds, trigger high-throughput sync pipelines, and audit data ingestion deltas.
+              </p>
+            </Card>
           </Link>
         </div>
 

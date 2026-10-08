@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import CityManagerCard from '@/components/CommandCenter/CityManagerCard';
 import { useApp } from '@/context/AppContext';
-import { Shield, Swords, Anchor, Users, ArrowRight, Zap, AlertTriangle, CheckCircle2, ChevronRight, Layers } from 'lucide-react';
+import { Shield, Swords, Anchor, Users, ArrowRight, Zap, AlertTriangle, CheckCircle2, ChevronRight, Layers, User } from 'lucide-react';
+import { PageHeader, Card, CardHeader, CardTitle, CardContent, StatCard, Badge, Button, EmptyState } from '@/components/ui';
 
 export default function PlannerPage() {
   const { activeWorldId, activeWorld, activePlayer, loadingPlayer } = useApp();
@@ -15,7 +16,7 @@ export default function PlannerPage() {
   const [selectedTownId, setSelectedTownId] = useState('');
   const [loadingTowns, setLoadingTowns] = useState(true);
 
-  // Specialization quick preset
+  // Specialization quick presets
   const PRESETS = {
     NO_LS: { label: 'Naval Offense (Fast Fire Ships)', desc: 'Maximizes Light Ships, Level 1 Wall, Level 0 Barracks', units: { light_ship: 280 } },
     LO_TS: { label: 'Land Offense (Slingers/Hoplites + Fast Transports)', desc: 'Heavy land nuke with fast transport capacity', units: { slinger: 1200, hoplite: 800, fast_transport: 125 } },
@@ -121,41 +122,42 @@ export default function PlannerPage() {
   const requiredFTS = Math.ceil(landTroopsPopulation / FTS_CAPACITY);
   const requiredTS = Math.ceil(landTroopsPopulation / TS_CAPACITY);
 
+  const headerBadges = [
+    {
+      text: `World: ${activeWorld?.name || activeWorldId?.toUpperCase()}`,
+      variant: 'primary',
+      mono: true,
+    },
+    ...(activePlayer ? [{
+      text: `Player: ${activePlayer.name}`,
+      variant: 'accent',
+      mono: true,
+      dot: true,
+    }] : [])
+  ];
+
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto">
-      
-      {/* Header */}
-      <div className="border-b border-slate-800 pb-5">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-mono bg-primary/20 text-primary border border-primary/30 px-2 py-0.5 rounded">
-            World: {activeWorld?.name || activeWorldId.toUpperCase()}
-          </span>
-          {activePlayer && (
-            <span className="text-xs font-mono bg-accent/20 text-accent border border-accent/30 px-2 py-0.5 rounded">
-              Player: {activePlayer.name}
-            </span>
-          )}
-        </div>
-        <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">
-          <Shield size={28} className="text-primary" /> City Specialization & Army Planner
-        </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Simulate building demolitions, maximize free farm population, and validate transport capacity.
-        </p>
-      </div>
+      {/* Standardized Hero Header Banner */}
+      <PageHeader
+        title="City Specialization & Army Planner"
+        subtitle="Simulate building demolitions, maximize free farm population, and validate naval transport capacity."
+        icon={Shield}
+        badges={headerBadges}
+      />
 
       {loadingTowns ? (
-        <div className="glass-panel text-center py-12">
+        <Card className="text-center py-12">
           <p className="text-slate-400 text-sm animate-pulse">Loading Empire Towns...</p>
-        </div>
+        </Card>
       ) : towns.length > 0 ? (
         <>
           {/* Town Selector Card */}
-          <div className="glass-panel p-4 bg-slate-900/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <Card className="p-4 bg-slate-900/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <label className="text-sm font-semibold text-slate-300">Select City:</label>
               <select 
-                className="input-field max-w-xs font-semibold text-accent"
+                className="input-field max-w-xs font-semibold text-indigo-400 cursor-pointer"
                 value={selectedTownId}
                 onChange={e => setSelectedTownId(e.target.value)}
               >
@@ -170,7 +172,7 @@ export default function PlannerPage() {
             <div className="text-xs text-slate-400 font-mono">
               Total Empire Cities: <strong className="text-white">{towns.length}</strong>
             </div>
-          </div>
+          </Card>
 
           {/* City Manager & Demolition Simulator */}
           {selectedTown && (
@@ -182,12 +184,12 @@ export default function PlannerPage() {
           )}
 
           {/* Army & Transport Capacity Planner */}
-          <div className="glass-panel p-6 bg-slate-900/80 rounded-2xl">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-slate-800 pb-4 gap-3">
+          <Card>
+            <CardHeader className="flex-col sm:flex-row items-start sm:items-center gap-3 pb-4">
               <div>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Swords size={20} className="text-accent" /> Troop Composition & Nuke Simulator
-                </h2>
+                <CardTitle icon={Swords}>
+                  Troop Composition & Nuke Simulator
+                </CardTitle>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Simulate ideal troop compositions and check transport ship sufficiency.
                 </p>
@@ -196,99 +198,98 @@ export default function PlannerPage() {
               {/* Specialization Quick Presets */}
               <div className="flex flex-wrap gap-2">
                 {Object.entries(PRESETS).map(([key, p]) => (
-                  <button
+                  <Button
                     key={key}
+                    size="xs"
+                    variant="secondary"
                     onClick={() => applyPreset(key)}
-                    className="btn text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 px-3 rounded-lg border border-slate-700"
                     title={p.desc}
                   >
                     {key}
-                  </button>
+                  </Button>
                 ))}
               </div>
-            </div>
+            </CardHeader>
 
-            {/* Metrics Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-center">
-                <div className="text-xs text-slate-400">Used Population</div>
-                <div className={`text-xl font-mono font-bold mt-1 ${remainingPopulation < 0 ? 'text-rose-400' : 'text-white'}`}>
-                  {usedPopulation} / {maxPopulation}
-                </div>
+            <CardContent>
+              {/* Metrics Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                <StatCard
+                  label="Used Population"
+                  value={`${usedPopulation} / ${maxPopulation}`}
+                  variant={remainingPopulation < 0 ? 'amber' : 'default'}
+                />
+                <StatCard
+                  label="Total Attack Power"
+                  value={totalAttack.toLocaleString()}
+                  variant="amber"
+                  icon={Swords}
+                />
+                <StatCard
+                  label="Naval / Transport Cap"
+                  value={`${currentTransportCapacity} / ${landTroopsPopulation}`}
+                  variant={transportDeficit > 0 ? 'amber' : 'emerald'}
+                  icon={Anchor}
+                />
+                <StatCard
+                  label="Def (H / P / D)"
+                  value={`${totalDefHack}/${totalDefPierce}/${totalDefDistance}`}
+                  variant="primary"
+                  icon={Shield}
+                />
               </div>
 
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-center">
-                <div className="text-xs text-slate-400">Total Attack Power</div>
-                <div className="text-xl font-mono font-bold text-amber-400 mt-1">
-                  {totalAttack.toLocaleString()}
-                </div>
-              </div>
-
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-center">
-                <div className="text-xs text-slate-400">Naval / Transport Cap</div>
-                <div className={`text-xl font-mono font-bold mt-1 ${transportDeficit > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {currentTransportCapacity} / {landTroopsPopulation} pop
-                </div>
-              </div>
-
-              <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-center">
-                <div className="text-xs text-slate-400">Def (H / P / D)</div>
-                <div className="text-lg font-mono font-bold text-blue-400 mt-1">
-                  {totalDefHack} / {totalDefPierce} / {totalDefDistance}
-                </div>
-              </div>
-            </div>
-
-            {/* Transport Warning Banner */}
-            {landTroopsPopulation > 0 && transportDeficit > 0 && (
-              <div className="mb-6 p-4 bg-rose-950/40 border border-rose-800/60 rounded-xl text-xs text-rose-300 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle size={16} className="text-rose-400 shrink-0" />
-                  <span>
-                    <strong>Transport Deficit:</strong> You have {landTroopsPopulation} land troop population, but only {currentTransportCapacity} transport capacity ({transportDeficit} unembarked).
-                  </span>
-                </div>
-                <div className="font-mono text-white">
-                  Need ~<strong>{requiredFTS}</strong> Fast Transports (or <strong>{requiredTS}</strong> Slow Transports)
-                </div>
-              </div>
-            )}
-
-            {/* Unit Inputs Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {units.map(unit => {
-                const count = counts[unit.id] || 0;
-                return (
-                  <div key={unit.id} className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-                    <div className="mb-2">
-                      <div className="text-xs font-bold text-slate-200 truncate" title={unit.name}>
-                        {unit.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-mono">
-                        Pop: {unit.population} • Att: {unit.attack || 0}
-                      </div>
-                    </div>
-
-                    <input
-                      type="number"
-                      min="0"
-                      value={count === 0 ? '' : count}
-                      placeholder="0"
-                      onChange={e => handleCountChange(unit.id, e.target.value)}
-                      className="input-field text-center font-mono font-bold text-sm bg-slate-900 py-1"
-                    />
+              {/* Transport Warning Banner */}
+              {landTroopsPopulation > 0 && transportDeficit > 0 && (
+                <div className="mb-6 p-4 bg-red-950/40 border border-red-800/60 rounded-xl text-xs text-red-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={16} className="text-red-400 shrink-0" />
+                    <span>
+                      <strong>Transport Deficit:</strong> You have {landTroopsPopulation} land troop population, but only {currentTransportCapacity} transport capacity ({transportDeficit} unembarked).
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="font-mono text-white shrink-0">
+                    Need ~<strong>{requiredFTS}</strong> FTS (or <strong>{requiredTS}</strong> TS)
+                  </div>
+                </div>
+              )}
 
-          </div>
+              {/* Unit Inputs Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                {units.map(unit => {
+                  const count = counts[unit.id] || 0;
+                  return (
+                    <div key={unit.id} className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between">
+                      <div className="mb-2">
+                        <div className="text-xs font-bold text-slate-200 truncate" title={unit.name}>
+                          {unit.name}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          Pop: {unit.population} • Att: {unit.attack || 0}
+                        </div>
+                      </div>
+
+                      <input
+                        type="number"
+                        min="0"
+                        value={count === 0 ? '' : count}
+                        placeholder="0"
+                        onChange={e => handleCountChange(unit.id, e.target.value)}
+                        className="input-field text-center font-mono font-bold text-sm bg-slate-900 py-1"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </>
       ) : (
-        <div className="glass-panel text-center py-12">
-          <p className="text-slate-400 text-sm mb-3">No towns found for active player in world {activeWorldId.toUpperCase()}.</p>
-          <p className="text-xs text-slate-500">Make sure world data is synchronized or select an active player with towns.</p>
-        </div>
+        <EmptyState
+          icon={User}
+          title="No Towns Found"
+          description={`No towns found for active player in world ${activeWorldId?.toUpperCase() || ''}. Make sure world data is synchronized or select an active player with towns.`}
+        />
       )}
     </div>
   );

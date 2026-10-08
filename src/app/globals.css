@@ -1,9 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
   --color-bg-dark: #0b1120;
   --color-bg-card: rgba(15, 23, 42, 0.75);
+  --color-surface-base: #0b1120;
+  --color-surface-card: rgba(15, 23, 42, 0.75);
+  --color-surface-elevated: rgba(22, 34, 60, 0.85);
+  --color-surface-hover: rgba(30, 48, 80, 0.6);
+  --color-surface-overlay: rgba(11, 17, 32, 0.85);
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-default: rgba(255, 255, 255, 0.12);
   --color-text-primary: #f8fafc;
   --color-text-secondary: #94a3b8;
   --color-primary: #3b82f6;
@@ -12,6 +18,12 @@
   --color-success: #10b981;
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
+  --color-tactical-gold: #f59e0b;
+  --color-tactical-emerald: #10b981;
+  --color-tactical-crimson: #ef4444;
+  --color-tactical-cyan: #06b6d4;
+  --font-sans: var(--font-outfit), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono), monospace;
 }
 
 :root {
@@ -43,14 +55,14 @@ body {
     radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.12) 0px, transparent 45%),
     radial-gradient(at 50% 50%, rgba(15, 23, 42, 0.6) 0px, transparent 100%);
   color: var(--text-primary);
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-outfit), system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   background-attachment: fixed;
   line-height: 1.5;
 }
 
 code, pre, .font-mono {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono), monospace;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -197,7 +209,19 @@ input[type="number"]::-webkit-inner-spin-button {
 .container {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 1.5rem 2rem;
+  padding: 1.25rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .container {
+    padding: 1.5rem 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    padding: 1.5rem 2rem;
+  }
 }
 
 /* Navbar */

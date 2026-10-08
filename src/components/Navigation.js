@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { 
-  Globe, User, ChevronDown, RefreshCw, Clock, Search, 
+  Globe, User, ChevronDown, RefreshCw, Search, 
   Map, Trophy, Shield, Crosshair, BarChart3, Settings, 
-  FileText, Check, AlertCircle, Users, LogIn, LogOut
+  FileText, Check, AlertCircle, Users, LogIn, LogOut,
+  Menu, X
 } from 'lucide-react';
+import { Modal, Badge, Button, Input } from '@/components/ui';
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -30,6 +32,7 @@ export default function Navigation() {
   const [playerSearchQuery, setPlayerSearchQuery] = useState('');
   const [playerSearchResults, setPlayerSearchResults] = useState([]);
   const [searchingPlayers, setSearchingPlayers] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -38,6 +41,11 @@ export default function Navigation() {
 
   const worldDropdownRef = useRef(null);
   const searchAbortRef = useRef(null);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   // Update live clock
   useEffect(() => {
@@ -139,54 +147,59 @@ export default function Navigation() {
   return (
     <>
       <nav className="navbar">
-        <div className="container flex justify-between items-center" style={{ padding: 0 }}>
+        <div className="container flex justify-between items-center w-full" style={{ padding: 0 }}>
           
           {/* Left: Brand & World Selector & Player Profile */}
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="gradient-text font-bold text-xl tracking-tight">GrepoTools</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link href="/" className="flex items-center gap-2 shrink-0">
+              <span className="gradient-text font-bold text-lg sm:text-xl tracking-tight">GrepoTools</span>
             </Link>
 
             {/* World Switcher Dropdown */}
             <div className="relative" ref={worldDropdownRef}>
               <button
+                type="button"
                 onClick={() => setWorldDropdownOpen(!worldDropdownOpen)}
-                className="flex items-center gap-2 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 px-3 py-1.5 rounded-lg text-sm transition-all"
+                className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs sm:text-sm transition-all cursor-pointer"
+                aria-expanded={worldDropdownOpen}
               >
-                <Globe size={15} className="text-primary" />
-                <span className="font-semibold text-slate-200">{activeWorld?.name || activeWorldId.toUpperCase()}</span>
-                <span className="bg-primary/20 text-primary font-mono text-xs px-1.5 py-0.5 rounded">
+                <Globe size={14} className="text-blue-400 shrink-0" />
+                <span className="font-semibold text-slate-200 truncate max-w-[90px] sm:max-w-none">
+                  {activeWorld?.name || activeWorldId?.toUpperCase()}
+                </span>
+                <span className="bg-blue-500/15 text-blue-400 font-mono text-[10px] sm:text-xs px-1.5 py-0.5 rounded-md hidden xs:inline">
                   {activeWorld?.speed || 1}x
                 </span>
-                <ChevronDown size={14} className="text-slate-400" />
+                <ChevronDown size={13} className="text-slate-400 shrink-0" />
               </button>
 
               {worldDropdownOpen && (
-                <div className="absolute left-0 mt-2 w-72 bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 animate-in fade-in zoom-in-95 duration-100">
-                  <div className="text-xs font-semibold text-slate-400 px-3 py-1.5 uppercase tracking-wider">
+                <div className="absolute left-0 mt-2 w-72 bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl z-50 p-2 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="text-[11px] font-semibold text-slate-400 px-3 py-1.5 uppercase tracking-wider">
                     Select Active World
                   </div>
                   <div className="max-h-60 overflow-y-auto flex flex-col gap-1">
                     {worlds.map(w => (
                       <button
                         key={w.id}
+                        type="button"
                         onClick={() => {
                           switchWorld(w.id);
                           setWorldDropdownOpen(false);
                         }}
-                        className={`flex items-center justify-between p-2.5 rounded-lg text-left text-sm transition-colors ${
+                        className={`flex items-center justify-between p-2.5 rounded-xl text-left text-sm transition-colors cursor-pointer ${
                           w.id.toLowerCase() === activeWorldId.toLowerCase()
-                            ? 'bg-primary/20 border border-primary/40 text-white' 
+                            ? 'bg-blue-600/20 border border-blue-500/40 text-white' 
                             : 'hover:bg-slate-800 text-slate-300'
                         }`}
                       >
                         <div>
-                          <div className="font-medium">{w.name}</div>
+                          <div className="font-medium text-white">{w.name}</div>
                           <div className="text-xs text-slate-400">
                             {w.worldType?.toUpperCase()} • {w.speed}x speed • {w.counts?.players || 0} players
                           </div>
                         </div>
-                        {w.id.toLowerCase() === activeWorldId.toLowerCase() && <Check size={16} className="text-primary" />}
+                        {w.id.toLowerCase() === activeWorldId.toLowerCase() && <Check size={16} className="text-blue-400" />}
                       </button>
                     ))}
                   </div>
@@ -194,7 +207,7 @@ export default function Navigation() {
                     <Link
                       href="/world"
                       onClick={() => setWorldDropdownOpen(false)}
-                      className="flex items-center justify-center gap-1.5 text-xs text-primary hover:text-primary-hover p-1.5 rounded hover:bg-slate-800/50 w-full"
+                      className="flex items-center justify-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 p-1.5 rounded-xl hover:bg-slate-800/50 w-full"
                     >
                       <Settings size={13} /> Manage / Add Worlds
                     </Link>
@@ -205,29 +218,31 @@ export default function Navigation() {
 
             {/* Active Player Profile Button */}
             <button
+              type="button"
               onClick={() => setPlayerModalOpen(true)}
-              className="flex items-center gap-2 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 px-3 py-1.5 rounded-lg text-sm transition-all"
+              className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs sm:text-sm transition-all cursor-pointer"
               title="Click to switch active player"
             >
-              <User size={15} className="text-accent" />
-              <span className="font-semibold text-slate-200">
+              <User size={14} className="text-indigo-400 shrink-0" />
+              <span className="font-semibold text-slate-200 truncate max-w-[85px] sm:max-w-none">
                 {activePlayer ? activePlayer.name : 'Choose Player'}
               </span>
               {activePlayer && (
-                <span className="text-xs text-slate-400 font-mono">
+                <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">
                   #{activePlayer.rank || '-'}
                 </span>
               )}
             </button>
 
-            {/* Sync Status Button */}
+            {/* Sync Status Button (Desktop) */}
             <button
+              type="button"
               onClick={handleTriggerSync}
               disabled={syncing}
-              className="hidden lg:flex items-center gap-2 bg-slate-900/50 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 transition-all"
+              className="hidden xl:flex items-center gap-1.5 bg-slate-900/50 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
               title="Click to force world sync"
             >
-              <RefreshCw size={12} className={syncing ? "animate-spin text-primary" : "text-slate-400"} />
+              <RefreshCw size={12} className={syncing ? "animate-spin text-blue-400" : "text-slate-400"} />
               <span>
                 {activeWorld?.lastSync 
                   ? `Synced ${Math.max(0, Math.floor((now - new Date(activeWorld.lastSync)) / 60000))}m ago` 
@@ -236,42 +251,46 @@ export default function Navigation() {
             </button>
 
             {syncMessage && (
-              <span className="text-xs text-primary font-mono animate-fade-in">
+              <span className="text-xs text-blue-400 font-mono animate-fade-in hidden lg:inline">
                 {syncMessage}
               </span>
             )}
           </div>
 
-          {/* Right: Navigation Links */}
-          <div className="nav-links flex items-center gap-1">
+          {/* Right: Desktop Navigation Links (hidden < lg) */}
+          <div className="hidden lg:flex items-center gap-1">
             {navLinks.map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
               return (
                 <Link
                   key={href}
                   href={href}
-                  className={`nav-link flex items-center gap-1.5 ${isActive ? 'active text-white' : 'text-slate-400'}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs xl:text-sm font-medium transition-all ${
+                    isActive
+                      ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
                 >
-                  <Icon size={16} />
+                  <Icon size={15} />
                   <span>{label}</span>
                 </Link>
               );
             })}
 
-            {/* Auth Session Widget */}
+            {/* Auth Session Widget (Desktop) */}
             <div className="flex items-center gap-2 pl-3 ml-2 border-l border-slate-800">
               {user ? (
                 <div className="flex items-center gap-2.5">
                   {isUnverified && (
                     <Link
                       href="/verify"
-                      className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-semibold text-xs rounded-lg flex items-center gap-1.5 transition animate-pulse"
+                      className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-semibold text-xs rounded-xl flex items-center gap-1.5 transition animate-pulse"
                     >
                       <AlertCircle size={13} className="text-amber-400" />
                       <span>Verify Town</span>
                     </Link>
                   )}
-                  <div className="hidden sm:flex flex-col text-right">
+                  <div className="flex flex-col text-right">
                     <span className="text-xs font-bold text-white leading-tight">
                       {user.username}
                     </span>
@@ -280,8 +299,9 @@ export default function Navigation() {
                     </span>
                   </div>
                   <button
+                    type="button"
                     onClick={logout}
-                    className="p-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700/60 rounded-lg text-slate-400 hover:text-red-400 transition cursor-pointer"
+                    className="p-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700/60 rounded-xl text-slate-400 hover:text-red-400 transition cursor-pointer"
                     title="Sign Out"
                   >
                     <LogOut size={15} />
@@ -290,7 +310,7 @@ export default function Navigation() {
               ) : (
                 <Link
                   href="/login"
-                  className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-300 transition"
+                  className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-300 transition"
                 >
                   <LogIn size={13} />
                   <span>Sign In</span>
@@ -299,115 +319,199 @@ export default function Navigation() {
             </div>
           </div>
 
+          {/* Right: Mobile Hamburger Button (visible < lg) */}
+          <div className="flex lg:hidden items-center gap-2">
+            {user ? (
+              <span className="text-xs font-mono text-amber-400 font-bold truncate max-w-[80px]">
+                {user.username}
+              </span>
+            ) : (
+              <Link
+                href="/login"
+                className="p-1.5 rounded-xl bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                title="Sign In"
+              >
+                <LogIn size={16} />
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 rounded-xl bg-slate-900 border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              aria-label="Toggle mobile menu"
+            >
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
+
         </div>
       </nav>
 
-      {/* Switch Player Modal */}
-      {playerModalOpen && (
-        <div 
-          className="grepo-modal-backdrop animate-fade-in"
-          onClick={(e) => { if (e.target === e.currentTarget) setPlayerModalOpen(false); }}
+      {/* Mobile Drawer Navigation (Slide-in / Backdrop Overlay) */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 top-[64px] z-50 bg-slate-950/80 backdrop-blur-md lg:hidden flex flex-col p-4 animate-fade-in"
+          onClick={() => setMobileMenuOpen(false)}
         >
-          <div 
-            className="glass-panel w-full max-w-md p-6 bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl relative my-auto"
+          <div
+            className="glass-panel bg-slate-900/95 border border-slate-700/80 rounded-2xl p-4 flex flex-col gap-2 shadow-2xl max-h-[calc(100vh-80px)] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <User size={18} className="text-accent" /> Switch Active Player
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Select your in-game identity for world <strong className="text-primary">{activeWorldId?.toUpperCase() || ''}</strong>
-                </p>
-              </div>
-              <button 
-                onClick={() => setPlayerModalOpen(false)}
-                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-                title="Close"
-              >
-                ✕
-              </button>
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 py-1">
+              Navigation Menu
             </div>
 
-            {/* Search Input */}
-            <div className="relative mb-4">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search player name in this world..."
-                value={playerSearchQuery}
-                onChange={(e) => setPlayerSearchQuery(e.target.value)}
-                className="input-field pl-9 pr-9 bg-slate-950/80 border-slate-700 text-sm"
-                autoFocus
-              />
-              {searchingPlayers && (
-                <RefreshCw size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-primary pointer-events-none" />
-              )}
-            </div>
-
-            {/* Current Active Player Details */}
-            {activePlayer && (
-              <div className="mb-4 p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex justify-between items-center">
-                <div>
-                  <div className="text-xs text-slate-400">Currently Active:</div>
-                  <div className="font-bold text-accent text-base">{activePlayer.name}</div>
-                  <div className="text-xs text-slate-400">
-                    Rank #{activePlayer.rank} • {activePlayer.points?.toLocaleString()} pts • {activePlayer.towns} cities
-                  </div>
-                </div>
-                <div className="text-xs bg-accent/20 text-accent font-semibold px-2 py-1 rounded">
-                  Active
-                </div>
-              </div>
-            )}
-
-            {/* Search Results List */}
-            <div className="max-h-60 overflow-y-auto flex flex-col gap-1.5">
-              {playerSearchResults.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => {
-                    switchPlayer(p.name);
-                    setPlayerModalOpen(false);
-                    setPlayerSearchQuery('');
-                  }}
-                  className="flex justify-between items-center p-2.5 rounded-lg hover:bg-slate-800 border border-slate-800/60 hover:border-slate-700 text-left transition-colors"
+            {navLinks.map(({ href, label, icon: Icon }) => {
+              const isActive = pathname === href;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                    isActive
+                      ? 'bg-blue-600/20 text-white border border-blue-500/40'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                  }`}
                 >
+                  <Icon size={18} className={isActive ? 'text-blue-400' : 'text-slate-400'} />
+                  <span>{label}</span>
+                </Link>
+              );
+            })}
+
+            <div className="border-t border-slate-800 my-2 pt-2 flex flex-col gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTriggerSync}
+                isLoading={syncing}
+                icon={RefreshCw}
+                className="w-full justify-start"
+              >
+                Sync Current World
+              </Button>
+
+              {user ? (
+                <div className="flex items-center justify-between p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 mt-1">
                   <div>
-                    <div className="font-semibold text-slate-200">{p.name}</div>
-                    <div className="text-xs text-slate-400">
-                      {p.alliance?.name ? `[${p.alliance.name}] • ` : ''}{p.points?.toLocaleString()} pts
+                    <div className="text-xs font-bold text-white">{user.username}</div>
+                    <div className="text-[10px] text-amber-400 font-mono uppercase">
+                      {isGlobalAdmin ? 'Global Admin' : currentTeam?.role || 'Member'}
                     </div>
                   </div>
-                  <span className="text-xs text-primary font-mono">Select →</span>
-                </button>
-              ))}
-
-              {playerSearchQuery.length >= 2 && playerSearchResults.length === 0 && !searchingPlayers && (
-                <div className="text-center py-6 text-slate-400 text-sm">
-                  No players found matching &quot;{playerSearchQuery}&quot;.
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => {
+                      logout();
+                      setMobileMenuOpen(false);
+                    }}
+                    icon={LogOut}
+                    className="text-red-400 hover:text-red-300"
+                  >
+                    Logout
+                  </Button>
                 </div>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center gap-2 p-2.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-xl font-bold text-sm"
+                >
+                  <LogIn size={16} /> Sign In
+                </Link>
               )}
-
-              {playerSearchQuery.length < 2 && (
-                <div className="text-center py-4 text-slate-500 text-xs">
-                  Type at least 2 characters to search players in this world.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end">
-              <button
-                onClick={() => setPlayerModalOpen(false)}
-                className="btn text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 px-4 rounded-lg border border-slate-700"
-              >
-                Done
-              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Switch Player Modal (Accessible Unified Modal) */}
+      <Modal
+        isOpen={playerModalOpen}
+        onClose={() => setPlayerModalOpen(false)}
+        title="Switch Active Player"
+        subtitle={`Select your in-game identity for world ${activeWorldId?.toUpperCase() || ''}`}
+        icon={User}
+        maxWidth="md"
+        footer={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setPlayerModalOpen(false)}
+          >
+            Done
+          </Button>
+        }
+      >
+        {/* Search Input */}
+        <div className="relative">
+          <Input
+            icon={Search}
+            type="text"
+            placeholder="Search player name in this world..."
+            value={playerSearchQuery}
+            onChange={(e) => setPlayerSearchQuery(e.target.value)}
+            autoFocus
+          />
+          {searchingPlayers && (
+            <RefreshCw size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-400 pointer-events-none" />
+          )}
+        </div>
+
+        {/* Current Active Player Details */}
+        {activePlayer && (
+          <div className="p-3 bg-slate-950/70 rounded-xl border border-slate-800 flex justify-between items-center">
+            <div>
+              <div className="text-[11px] text-slate-400 uppercase tracking-wider">Currently Active:</div>
+              <div className="font-bold text-indigo-400 text-base">{activePlayer.name}</div>
+              <div className="text-xs text-slate-400 font-mono mt-0.5">
+                Rank #{activePlayer.rank} • {activePlayer.points?.toLocaleString()} pts • {activePlayer.towns} cities
+              </div>
+            </div>
+            <Badge variant="accent" dot>
+              Active
+            </Badge>
+          </div>
+        )}
+
+        {/* Search Results List */}
+        <div className="max-h-60 overflow-y-auto flex flex-col gap-1.5 pr-1">
+          {playerSearchResults.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                switchPlayer(p.name);
+                setPlayerModalOpen(false);
+                setPlayerSearchQuery('');
+              }}
+              className="flex justify-between items-center p-2.5 rounded-xl hover:bg-slate-800/80 border border-slate-800/80 hover:border-slate-700 text-left transition-colors cursor-pointer"
+            >
+              <div>
+                <div className="font-semibold text-slate-200">{p.name}</div>
+                <div className="text-xs text-slate-400 font-mono">
+                  {p.alliance?.name ? `[${p.alliance.name}] • ` : ''}{p.points?.toLocaleString()} pts
+                </div>
+              </div>
+              <span className="text-xs text-blue-400 font-mono font-medium">Select →</span>
+            </button>
+          ))}
+
+          {playerSearchQuery.length >= 2 && playerSearchResults.length === 0 && !searchingPlayers && (
+            <div className="text-center py-6 text-slate-400 text-xs">
+              No players found matching &quot;{playerSearchQuery}&quot;.
+            </div>
+          )}
+
+          {playerSearchQuery.length < 2 && (
+            <div className="text-center py-4 text-slate-500 text-xs">
+              Type at least 2 characters to search players in this world.
+            </div>
+          )}
+        </div>
+      </Modal>
     </>
   );
 }

@@ -103,7 +103,7 @@ export default function WorldMap() {
 
   const mapRef = useRef();
   const rafRef = useRef(null);
-  const pipelineRef = useRef(new TacticalScenePipeline());
+  const pipeline = useMemo(() => new TacticalScenePipeline(), []);
 
   // Cleanup rAF on unmount to prevent memory leaks
   useEffect(() => {
@@ -246,7 +246,7 @@ export default function WorldMap() {
 
   // Compile immutable SceneBundle via deep TacticalScenePipeline
   const scene = useMemo(() => {
-    return pipelineRef.current.compileScene({
+    return pipeline.compileScene({
       geojsonData: data,
       topAlliances,
       topPlayers,

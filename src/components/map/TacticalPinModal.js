@@ -13,6 +13,7 @@ import {
   exportPinToSniper, 
   exportPinToPlanner 
 } from '@/lib/map/tacticalPins';
+import { Modal, Button, Badge } from '@/components/ui';
 
 export default function TacticalPinModal({
   isOpen,
@@ -100,32 +101,15 @@ export default function TacticalPinModal({
   const sniperUrl = exportPinToSniper(currentPinDraft);
 
   return (
-    <div className="grepo-modal-backdrop animate-fade-in">
-      <div 
-        className="glass-panel w-full max-w-md rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl p-5 flex flex-col gap-4 text-white"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-primary/20 text-primary border border-primary/30">
-              <Pin size={18} />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm leading-tight">{townName}</h3>
-              <p className="text-xs text-slate-400 font-mono">
-                Coordinates: ({townX}, {townY}) • Ocean {Math.floor(townX / 100)}{Math.floor(townY / 100)}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="md"
+      title={townName}
+      subtitle={`Coordinates: (${townX}, ${townY}) • Ocean ${Math.floor(townX / 100)}${Math.floor(townY / 100)}`}
+      icon={Pin}
+    >
+      <div className="flex flex-col gap-4 text-white">
         {/* Operation Pin Type Selection */}
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -228,45 +212,39 @@ export default function TacticalPinModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+        <div className="flex items-center justify-between pt-3 border-t border-slate-800">
           {existingPin ? (
-            <button
-              type="button"
+            <Button
+              variant="danger"
+              size="xs"
               onClick={handleDelete}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-medium transition-colors"
+              icon={Trash2}
             >
-              <Trash2 size={14} /> Remove Pin
-            </button>
+              Remove Pin
+            </Button>
           ) : (
             <div />
           )}
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
             >
               Cancel
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleSave}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-lg"
+              icon={savedSuccess ? Check : Pin}
             >
-              {savedSuccess ? (
-                <>
-                  <Check size={14} /> Saved!
-                </>
-              ) : (
-                <>
-                  <Pin size={14} /> {existingPin ? 'Update Pin' : 'Drop Pin'}
-                </>
-              )}
-            </button>
+              {savedSuccess ? 'Saved!' : existingPin ? 'Update Pin' : 'Drop Pin'}
+            </Button>
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

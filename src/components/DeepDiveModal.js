@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Users, Trophy, Shield, Swords, Activity, MapPin, ExternalLink, Calendar } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
+import { Modal, Badge } from '@/components/ui';
 
 function formatNumber(num) {
   if (num === undefined || num === null) return "0";
@@ -11,14 +12,6 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [viewType, setViewType] = useState('area');
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
 
   useEffect(() => {
     async function fetchData() {
@@ -79,35 +72,23 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
   const coordsY = entity.data.islandY || entity.data.y || data?.town?.islandY;
 
   return (
-    <div 
-      className="grepo-modal-backdrop animate-fade-in"
-      onClick={(e) => { if(e.target === e.currentTarget) onClose(); }}
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      maxWidth="4xl"
     >
-      <div 
-        className="glass-panel w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl relative flex flex-col my-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        
-        {/* Close Button */}
-        <button 
-          onClick={onClose} 
-          className="absolute top-4 right-4 p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors z-10"
-          title="Close (Esc)"
-        >
-          <X size={18} />
-        </button>
-
+      <div className="flex flex-col gap-4 text-white">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6 border-b border-slate-800 pb-4 pr-8">
+        <div className="flex items-center gap-4 mb-2 border-b border-slate-800 pb-4">
           <div className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 shrink-0">
             {renderIcon()}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-bold text-white tracking-tight truncate">{getEntityTitle()}</h2>
-              <span className="text-xs font-mono bg-primary/20 text-primary border border-primary/30 px-2 py-0.5 rounded shrink-0">
+              <Badge variant="primary" mono size="xs">
                 World {worldId.toUpperCase()}
-              </span>
+              </Badge>
             </div>
             {entity.type === 'player' && getAllianceName() && (
               <div className="text-sm font-semibold text-accent mt-0.5 truncate">
@@ -291,8 +272,7 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
             </div>
           )}
         </div>
-
       </div>
-    </div>
+    </Modal>
   );
 }

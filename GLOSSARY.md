@@ -110,3 +110,12 @@ _Avoid_: Audit service, audit client, log fetcher
 The unified client adapter seam executing on-demand town verification handshakes and master player identity queries.
 _Avoid_: Verify client, player service, identity helper
 
+**Tactical UI Primitives**:
+The cohesive set of atomic and compound presentation components (`Button`, `Card`, `StatCard`, `Modal`, `Badge`, `PageHeader`, `EmptyState`, `Skeleton`) conforming to the military-grade visual design pattern, Core Web Vitals optimization, and WCAG accessibility standards.
+_Avoid_: UI helpers, common components, widget library
+
+**Tactical Design Tokens**:
+The semantic CSS custom properties and Tailwind v4 theme definitions standardizing surface elevations, command palettes, monospace telemetry, and border treatments.
+_Avoid_: Theme variables, CSS constants, color styles
+
+
