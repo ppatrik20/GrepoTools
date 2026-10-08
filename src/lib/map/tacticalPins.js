@@ -29,7 +29,7 @@ const VALID_PRIORITIES = Object.keys(PIN_PRIORITIES);
  * @returns {Array<Object>} Array of TacticalPin objects
  */
 export function getTacticalPins(worldId, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
-  if (!worldId || !storage) return [];
+  if (worldId === undefined || worldId === null || !storage) return [];
   try {
     const raw = storage.getItem(`grepo_tactical_pins_${worldId}`);
     if (!raw) return [];
@@ -51,7 +51,7 @@ export function getTacticalPins(worldId, storage = (typeof localStorage !== 'und
  * @returns {Array<Object>} Updated array of pins
  */
 export function saveTacticalPin(worldId, pin, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
-  if (!worldId || !storage || !pin || !pin.townId) return [];
+  if (worldId === undefined || worldId === null || !storage || !pin || !pin.townId) return [];
 
   const pins = getTacticalPins(worldId, storage);
 
@@ -83,6 +83,7 @@ export function saveTacticalPin(worldId, pin, storage = (typeof localStorage !==
       ...pins[existingIndex],
       ...newPin,
       id: pins[existingIndex].id,
+      author: pin.author || pins[existingIndex].author,
       createdAt: pins[existingIndex].createdAt
     };
   } else {
@@ -107,7 +108,7 @@ export function saveTacticalPin(worldId, pin, storage = (typeof localStorage !==
  * @returns {boolean} True if removed successfully
  */
 export function removeTacticalPin(worldId, pinId, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
-  if (!worldId || !storage || !pinId) return false;
+  if (worldId === undefined || worldId === null || !storage || !pinId) return false;
   const pins = getTacticalPins(worldId, storage);
   const filtered = pins.filter(p => p.id !== pinId);
   if (filtered.length === pins.length) return false;
@@ -150,12 +151,8 @@ export function exportPinToSniper(pin, baseUrl = '/snipe') {
 export function exportPinToPlanner(pin) {
   if (!pin) return null;
   return {
-    id: pin.townId,
     targetTownId: pin.townId,
-    name: pin.townName || `Town #${pin.townId}`,
     targetName: pin.townName || `Town #${pin.townId}`,
-    islandX: pin.townX ?? pin.x,
-    islandY: pin.townY ?? pin.y,
     townX: pin.townX ?? pin.x,
     townY: pin.townY ?? pin.y,
     priority: pin.priority,
