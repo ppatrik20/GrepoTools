@@ -5,6 +5,7 @@ import {
   Globe, Plus, RefreshCw, Trash2, CheckCircle2, AlertTriangle, 
   Settings, Database, Server, Clock, Edit3, Lock, Unlock, X, ShieldCheck, Users
 } from 'lucide-react';
+import { WorldOperationsAdapter } from '@/lib/world/WorldOperationsAdapter';
 
 export default function AdminWorldCenter() {
   const { worlds, activeWorldId, switchWorld, refreshWorlds } = useApp();
@@ -61,20 +62,11 @@ export default function AdminWorldCenter() {
     e.preventDefault();
     setAuthError('');
     try {
-      const res = await fetch('/api/admin/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: adminPasswordInput })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIsAuthenticated(true);
-        try {
-          sessionStorage.setItem('grepo_admin_auth', 'true');
-        } catch (e) {}
-      } else {
-        setAuthError(data.error || 'Invalid passcode');
-      }
+      await WorldOperationsAdapter.verifyAdminPassword(adminPasswordInput);
+      setIsAuthenticated(true);
+      try {
+        sessionStorage.setItem('grepo_admin_auth', 'true');
+      } catch (e) {}
     } catch (err) {
       setAuthError(err.message);
     }
@@ -100,22 +92,16 @@ export default function AdminWorldCenter() {
     const cleanName = newWorldName.trim() || `${cleanId.toUpperCase()} (${cleanServer})`;
 
     try {
-      const res = await fetch('/api/worlds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: cleanId,
-          name: cleanName,
-          server: cleanServer,
-          speed: parseFloat(newWorldSpeed) || 1.0,
-          unitSpeed: parseFloat(newWorldUnitSpeed) || 1.0,
-          worldType: newWorldType,
-          isActive: true
-        })
+      await WorldOperationsAdapter.saveWorld({
+        id: cleanId,
+        name: cleanName,
+        server: cleanServer,
+        speed: parseFloat(newWorldSpeed) || 1.0,
+        unitSpeed: parseFloat(newWorldUnitSpeed) || 1.0,
+        worldType: newWorldType,
+        isActive: true,
+        isEditing: false
       });
-
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Failed to add world');
 
       setSuccessMessage(`World ${cleanId.toUpperCase()} created successfully!`);
       await refreshWorlds();
@@ -153,22 +139,16 @@ export default function AdminWorldCenter() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/worlds', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: editingWorld.id,
-          name: editName,
-          server: editServer,
-          speed: parseFloat(editSpeed) || 1.0,
-          unitSpeed: parseFloat(editUnitSpeed) || 1.0,
-          worldType: editType,
-          isActive: editActive
-        })
+      await WorldOperationsAdapter.saveWorld({
+        id: editingWorld.id,
+        name: editName,
+        server: editServer,
+        speed: parseFloat(editSpeed) || 1.0,
+        unitSpeed: parseFloat(editUnitSpeed) || 1.0,
+        worldType: editType,
+        isActive: editActive,
+        isEditing: true
       });
-
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Failed to update world');
 
       setSuccessMessage(`World ${editingWorld.id.toUpperCase()} updated successfully!`);
       await refreshWorlds();
@@ -184,8 +164,7 @@ export default function AdminWorldCenter() {
     setSyncingWorldId(worldId);
     setError('');
     try {
-      const res = await fetch(`/api/world/sync?world=${worldId}&force=true`);
-      const data = await res.json();
+      const data = await WorldOperationsAdapter.triggerWorldSync({ worldId, force: true });
       if (data.success) {
         setSyncResults(prev => ({
           ...prev,
@@ -208,14 +187,9 @@ export default function AdminWorldCenter() {
     }
 
     try {
-      const res = await fetch(`/api/worlds?id=${worldId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setSuccessMessage(`World ${worldId.toUpperCase()} deleted.`);
-        await refreshWorlds();
-      } else {
-        setError(data.error || 'Failed to delete world');
-      }
+      await WorldOperationsAdapter.deleteWorld(worldId);
+      setSuccessMessage(`World ${worldId.toUpperCase()} deleted.`);
+      await refreshWorlds();
     } catch (err) {
       setError(err.message);
     }

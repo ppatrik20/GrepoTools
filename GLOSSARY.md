@@ -69,3 +69,23 @@ _Avoid_: Local storage wrapper, snipe persistence, db client
 **Team Operations Adapter**:
 The unified client-side adapter seam executing team metadata aggregation, member role changes, custom role definitions, and cryptographic invitation lifecycles.
 _Avoid_: Team service, team client, team API helper
+
+**World Ingestion**:
+The multi-stage pipeline extracting remote Grepolis server gzip feeds, sanitizing raw entity dumps, computing historical deltas, and persisting world snapshots into relational storage.
+_Avoid_: Data scraping, world sync job, world downloader
+
+**World Delta**:
+The chronological record of changes (points, town ownership, offensive/defensive battle points) between consecutive world data synchronizations.
+_Avoid_: Stat diff, sync change, point delta
+
+**World Sync Pipeline**:
+The multi-stage domain orchestrator executing freshness checks, remote file decompression, delta calculation, database transactions, operative verification, and cache compilation behind a unified interface.
+_Avoid_: Sync worker, cron runner, sync script
+
+**World Cache Compiler**:
+The deep module pre-compiling and compressing MapLibre GeoJSON features and tactical Scoreboards into base64-encoded gzip buffers for fast retrieval.
+_Avoid_: Cache helper, cache service, geojson builder
+
+**World Operations Adapter**:
+The unified client adapter seam encapsulating world queries, synchronization triggers, cache rebuilding, and administrative world management.
+_Avoid_: World API service, world client, admin helper
