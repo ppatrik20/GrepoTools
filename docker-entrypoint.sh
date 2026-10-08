@@ -8,7 +8,7 @@ echo "=========================================================="
 # 1. Non-destructively push Prisma schema changes to PostgreSQL
 if [ -f "node_modules/prisma/build/index.js" ]; then
   echo "[Startup 1/2] Synchronizing database schema via Prisma..."
-  node node_modules/prisma/build/index.js db push --skip-generate || {
+  node node_modules/prisma/build/index.js db push --schema=prisma/schema.prisma --skip-generate || {
     echo "[Startup Warning] Prisma schema push encountered an issue. Proceeding with application launch..."
   }
 else

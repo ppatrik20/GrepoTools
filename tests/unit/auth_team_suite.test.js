@@ -16,6 +16,7 @@ import { requireAuth, extractClientIp } from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 import { prisma } from '@/lib/prisma';
 import { POST as refreshPost } from '@/app/api/auth/refresh/route';
+import { POST as loginPost } from '@/app/api/auth/login/route';
 
 describe('Auth & Team RBAC Test Suite', () => {
 
@@ -667,6 +668,32 @@ describe('Auth & Team RBAC Test Suite', () => {
       expect(validateInviteTarget('Themistocles', authUser, team)).toEqual({
         valid: true
       });
+    });
+
+    it('POST /api/auth/login logs in valid user and returns tokens', async () => {
+      const req = new Request('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'perfi', password: 'admin' })
+      });
+      const res = await loginPost(req);
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.user.username).toBe('perfi');
+      expect(data.user.globalRole).toBe('GLOBAL_ADMIN');
+    });
+
+    it('POST /api/auth/login rejects wrong password with 401', async () => {
+      const req = new Request('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'perfi', password: 'wrongpassword' })
+      });
+      const res = await loginPost(req);
+      const data = await res.json();
+      expect(res.status).toBe(401);
+      expect(data.error).toBe('Invalid username or password');
     });
   });
 
