@@ -8,6 +8,10 @@ import {
   calculateRecallTiming,
   calculateMidpointRecall
 } from './traveltime.js';
+import {
+  resolveOperationTargeting,
+  resolveRecallTargeting
+} from './operations/OperationPlanner.js';
 
 describe('Adversarial Stress Test: unwrapTownPayload permutations', () => {
   test('handles nested object: { town: { id: 1, name: "Sparta" } }', () => {
@@ -56,41 +60,16 @@ describe('Adversarial Stress Test: unwrapTownPayload permutations', () => {
 });
 
 describe('Adversarial Stress Test: /snipe Query Parameter Ingestion Simulations', () => {
-  // Simulator for /snipe ingestion logic from src/app/snipe/page.js
-  function simulateSnipeIngestion(originPayload, targetPayload, activeWorld = { speed: 3, unitSpeed: 1 }) {
-    const originTown = unwrapTownPayload(originPayload);
-    const targetTown = unwrapTownPayload(targetPayload);
-
-    let label = '';
-    let travelTime = '';
-    let type = 'attack';
-
-    const originValid = originTown && originTown.name;
-    const targetValid = targetTown && targetTown.name;
-
-    if (originValid && targetValid) {
-      label = `${originTown.name} ? ${targetTown.name}`;
-      const dist = calculateDistance(originTown, targetTown);
-      const worldSpeed = activeWorld?.speed || 3;
-      const unitSpeed = activeWorld?.unitSpeed || 1;
-      const travelSecs = calculateTravelTimeSeconds(dist, 3, worldSpeed, unitSpeed);
-      travelTime = formatDuration(travelSecs);
-      type = 'cs';
-    } else if (targetValid) {
-      label = `Operation on ${targetTown.name}`;
-    } else if (originValid) {
-      label = `Operation from ${originTown.name}`;
-    }
-
-    return { label, travelTime, type, originTown, targetTown };
-  }
+  // Delegate directly to production OperationPlanner engine
+  const simulateSnipeIngestion = (originPayload, targetPayload, activeWorld) =>
+    resolveOperationTargeting({ originPayload, targetPayload, activeWorld });
 
   test('Permutation 1: Both origin and target nested', () => {
     const origin = { town: { id: 10, name: 'Origin City', islandX: 500, islandY: 500, islandSlot: 1 } };
     const target = { town: { id: 20, name: 'Target City', islandX: 503, islandY: 504, islandSlot: 2 } };
 
     const state = simulateSnipeIngestion(origin, target, { speed: 3, unitSpeed: 1 });
-    expect(state.label).toBe('Origin City ? Target City');
+    expect(state.label).toBe('Origin City → Target City');
     expect(state.type).toBe('cs');
     expect(state.travelTime).toBe('00:27:47'); // 5.0 dist -> (5 * 50) / (3 * 3 * 1) = 27.77m -> 1667s -> 00:27:47
   });
@@ -100,7 +79,7 @@ describe('Adversarial Stress Test: /snipe Query Parameter Ingestion Simulations'
     const target = { id: 20, name: 'Target City', islandX: 503, islandY: 504, islandSlot: 2 };
 
     const state = simulateSnipeIngestion(origin, target, { speed: 3, unitSpeed: 1 });
-    expect(state.label).toBe('Origin City ? Target City');
+    expect(state.label).toBe('Origin City → Target City');
     expect(state.travelTime).toBe('00:27:47');
   });
 
@@ -109,7 +88,7 @@ describe('Adversarial Stress Test: /snipe Query Parameter Ingestion Simulations'
     const target = { town: { id: 20, name: 'Nested Target', islandX: 500, islandY: 500, islandSlot: 5 } };
 
     const state = simulateSnipeIngestion(origin, target, { speed: 3, unitSpeed: 1 });
-    expect(state.label).toBe('Flat Origin ? Nested Target');
+    expect(state.label).toBe('Flat Origin → Nested Target');
     expect(state.type).toBe('cs');
     // Same island: slotDiff = 4 -> dist = 2.0 + 4 * 0.35 = 3.4
     // CS travel: (3.4 * 50) / (3 * 3 * 1) = 18.88m -> 1133s -> 00:18:53
@@ -147,46 +126,15 @@ describe('Adversarial Stress Test: /snipe Query Parameter Ingestion Simulations'
   test('Permutation 8: Same Origin and Target Town IDs (distance = 0)', () => {
     const town = { town: { id: '99', name: 'Sparta', islandX: 500, islandY: 500, islandSlot: 1 } };
     const state = simulateSnipeIngestion(town, town);
-    expect(state.label).toBe('Sparta ? Sparta');
+    expect(state.label).toBe('Sparta → Sparta');
     expect(state.travelTime).toBe('00:00:00');
   });
 });
 
 describe('Adversarial Stress Test: /snipe/recall Query Parameter Ingestion Simulations', () => {
-  // Simulator for /snipe/recall ingestion logic from src/app/snipe/recall/page.js
-  function simulateRecallIngestion(originPayload, targetPayload, initialGroups = [], activeWorld = { worldType: 'siege' }) {
-    let groups = [...initialGroups];
-    let activeGroupId = null;
-    let movAttacker = '';
-    let movAttackerId = null;
-
-    const targetTown = unwrapTownPayload(targetPayload);
-    if (targetTown?.name) {
-      const existing = groups.find(g => g.townId === targetTown.id || g.name.toLowerCase() === targetTown.name.toLowerCase());
-      if (existing) {
-        activeGroupId = existing.id;
-      } else {
-        const newGroup = {
-          id: 'grp_' + targetTown.id,
-          name: targetTown.name,
-          townId: targetTown.id,
-          worldType: (activeWorld?.worldType || 'siege').toLowerCase(),
-          movements: [],
-          plans: []
-        };
-        activeGroupId = newGroup.id;
-        groups.push(newGroup);
-      }
-    }
-
-    const originTown = unwrapTownPayload(originPayload);
-    if (originTown?.name) {
-      movAttacker = originTown.name;
-      movAttackerId = originTown.id;
-    }
-
-    return { groups, activeGroupId, movAttacker, movAttackerId };
-  }
+  // Delegate directly to production OperationPlanner engine
+  const simulateRecallIngestion = (originPayload, targetPayload, initialGroups = [], activeWorld = { worldType: 'siege' }) =>
+    resolveRecallTargeting({ originPayload, targetPayload, existingGroups: initialGroups, activeWorld });
 
   test('Permutation 1: Nested targetTown creates defense group and nested originTown sets attacker', () => {
     const target = { town: { id: '100', name: 'Corinth Capital' } };

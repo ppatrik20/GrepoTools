@@ -24,6 +24,18 @@ _Avoid_: Scanner, target finder, farm searcher
 A strategic operation marker dropped on a town or coordinate with priority tiers, mission orders, and sniper export links.
 _Avoid_: Map marker, waypoint, flag, bookmark
 
+**Launch Window**:
+The temporal bracket around the ideal departure time offset by Grepolis anti-timing randomization (±10s).
+_Avoid_: Send buffer, timing margin, random range
+
+**Midpoint Recall**:
+The tactical withdrawal technique where troops are launched outward toward an arbitrary target and recalled at exactly half elapsed transit time to land back at home city at target landing time (subject to the 10-minute maximum cancel limit).
+_Avoid_: Half-time cancel, return trick, fake attack cancel
+
+**Conquest Gap**:
+The critical chronological interval between offensive clear waves and arrival of the Colony Ship or support waves, dictated by world conquest rules (Revolt vs. Siege).
+_Avoid_: Timing hole, attack window, CS gap
+
 ## Architecture Seams
 
 **Tactical Scene Pipeline**:
@@ -37,3 +49,11 @@ _Avoid_: Map state, scene object, layer state
 **Tactical Layer Registry**:
 The declarative catalog defining MapLibre layer stacking order, zoom thresholds, SDF icons, and WebGL paint specifications.
 _Avoid_: Style manager, layer definitions, layer helper
+
+**Operation Planner**:
+The in-process domain module compiling target landing schedules, anti-timing launch windows, and conquest gap alignments into immutable operation plans.
+_Avoid_: Snipe service, timer helper, attack manager
+
+**Operations Storage**:
+The adapter seam bridging operational queues and recall groups to local browser storage or remote team databases with automatic date revival.
+_Avoid_: Local storage wrapper, snipe persistence, db client

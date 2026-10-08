@@ -8,7 +8,16 @@ import {
 } from 'lucide-react';
 import DummyFinder from '@/components/CommandCenter/DummyFinder';
 import { useApp } from '@/context/AppContext';
-import { calculateMidpointRecall, formatDuration } from '@/lib/traveltime';
+import { 
+  calculateConquestGaps, 
+  planRecallSnipe, 
+  resolveRecallTargeting,
+  formatDuration 
+} from '@/lib/operations/OperationPlanner';
+import { 
+  LocalOperationsAdapter, 
+  RemoteOperationsAdapter 
+} from '@/lib/operations/OperationsStorage';
 
 function RecallSnipeContent() {
   const { activeWorldId, activeWorld, activePlayer } = useApp();
@@ -33,43 +42,32 @@ function RecallSnipeContent() {
     async function ingestParams() {
       try {
         const worldParam = activeWorldId || 'hu119';
+        let targetPayload = null;
+        let originPayload = null;
+
         if (targetTownId) {
           const res = await fetch(`/api/world/town/${targetTownId}?world=${worldParam}`);
-          if (res.ok) {
-            const data = await res.json();
-            const targetTown = data.town || data;
-            if (targetTown?.name) {
-              setGroups(prev => {
-                const existing = prev.find(g => g.townId === targetTown.id || g.name.toLowerCase() === targetTown.name.toLowerCase());
-                if (existing) {
-                  setActiveGroupId(existing.id);
-                  return prev;
-                }
-                const newGroup = {
-                  id: Date.now().toString(),
-                  name: targetTown.name,
-                  townId: targetTown.id,
-                  worldType: (activeWorld?.worldType || 'siege').toLowerCase(),
-                  movements: [],
-                  plans: []
-                };
-                setActiveGroupId(newGroup.id);
-                return [...prev, newGroup];
-              });
-            }
-          }
+          if (res.ok) targetPayload = await res.json();
         }
         if (originTownId) {
           const res = await fetch(`/api/world/town/${originTownId}?world=${worldParam}`);
-          if (res.ok) {
-            const data = await res.json();
-            const originTown = data.town || data;
-            if (originTown?.name) {
-              setMovAttacker(originTown.name);
-              setMovAttackerId(originTown.id);
-            }
-          }
+          if (res.ok) originPayload = await res.json();
         }
+
+        setGroups(prev => {
+          const result = resolveRecallTargeting({
+            originPayload,
+            targetPayload,
+            existingGroups: prev,
+            activeWorld
+          });
+          if (result.activeGroupId) setActiveGroupId(result.activeGroupId);
+          if (result.movAttacker) {
+            setMovAttacker(result.movAttacker);
+            setMovAttackerId(result.movAttackerId);
+          }
+          return result.groups;
+        });
       } catch (err) {
         console.error("Failed to ingest recall query params:", err);
       }
@@ -135,25 +133,16 @@ function RecallSnipeContent() {
   // Load groups from localStorage for active world
   useEffect(() => {
     if (!activeWorldId) return;
-    const saved = localStorage.getItem(`grepo-recall-groups_${activeWorldId}`) || localStorage.getItem('grepo-recall-groups');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setGroups(parsed);
-        if (parsed.length > 0) setActiveGroupId(parsed[0].id);
-      } catch (e) {
-        console.error("Failed to parse recall groups", e);
-      }
-    } else {
-      setGroups([]);
-      setActiveGroupId(null);
-    }
+    const loadedGroups = LocalOperationsAdapter.getRecallGroups(activeWorldId);
+    setGroups(loadedGroups);
+    if (loadedGroups.length > 0) setActiveGroupId(loadedGroups[0].id);
+    else setActiveGroupId(null);
   }, [activeWorldId]);
 
   // Save groups to localStorage
   useEffect(() => {
     if (!activeWorldId) return;
-    localStorage.setItem(`grepo-recall-groups_${activeWorldId}`, JSON.stringify(groups));
+    LocalOperationsAdapter.setRecallGroups(activeWorldId, groups);
   }, [groups, activeWorldId]);
 
   // Tick every second & trigger audio chirps at T-10, T-5, T-3, T-2, T-1, T-0
@@ -384,97 +373,42 @@ function RecallSnipeContent() {
   // --- Gap Calculations (Revolt vs Siege) ---
   const calculateGaps = () => {
     if (!activeGroup || activeGroup.movements.length === 0) return [];
-    
-    const csMovements = activeGroup.movements.filter(m => m.type === 'cs');
-    const gaps = [];
-    const worldType = (activeGroup.worldType || activeWorld?.worldType || 'siege').toLowerCase();
-
-    csMovements.forEach(cs => {
-      const csTime = new Date(cs.arrivalTime).getTime();
-      const beforeAttacks = activeGroup.movements.filter(m => m.type === 'attack' && new Date(m.arrivalTime).getTime() < csTime);
-      const afterSupports = activeGroup.movements.filter(m => m.type !== 'attack' && new Date(m.arrivalTime).getTime() > csTime);
-
-      const lastClear = beforeAttacks.length > 0 ? beforeAttacks[beforeAttacks.length - 1] : null;
-      const firstSupport = afterSupports.length > 0 ? afterSupports[0] : null;
-
-      if (worldType === 'revolt') {
-        // In Revolt mode: CS landing immediately captures the town. Units MUST return BEFORE the CS!
-        const gapEnd = csTime;
-        const gapStart = lastClear ? new Date(lastClear.arrivalTime).getTime() : csTime - 60000;
-        const returnTime = gapEnd - 1000; // 1s before CS
-
-        gaps.push({
-          id: `gap_before_${cs.id}`,
-          mode: 'revolt',
-          desc: `⚡ Defend Revolt CS (Return 1s BEFORE CS from ${cs.attacker})`,
-          gapStart, 
-          gapEnd, 
-          returnTime,
-          csArrival: csTime
-        });
-      } else {
-        // In Siege mode: CS initiates a siege.
-        // Primary Option: Break Siege (Return 1s AFTER CS before enemy support)
-        const gapStart = csTime;
-        const gapEnd = firstSupport ? new Date(firstSupport.arrivalTime).getTime() : csTime + 60000;
-        const returnTime = gapStart + 1000; // 1s after CS
-        
-        gaps.push({
-          id: `gap_after_${cs.id}`,
-          mode: 'siege_break',
-          desc: `🛡️ Break Siege (Return 1s AFTER CS from ${cs.attacker})`,
-          gapStart, 
-          gapEnd, 
-          returnTime,
-          csArrival: csTime
-        });
-
-        // Secondary Option: Pre-CS Defense (Return 1s BEFORE CS)
-        gaps.push({
-          id: `gap_before_${cs.id}`,
-          mode: 'siege_defend',
-          desc: `⚔️ Pre-CS Defense (Return 1s BEFORE CS from ${cs.attacker})`,
-          gapStart: lastClear ? new Date(lastClear.arrivalTime).getTime() : csTime - 60000,
-          gapEnd: csTime,
-          returnTime: csTime - 1000,
-          csArrival: csTime
-        });
-      }
+    return calculateConquestGaps({
+      movements: activeGroup.movements,
+      worldType: activeGroup.worldType || activeWorld?.worldType || 'siege'
     });
-
-    return gaps;
   };
 
   const createPlanFromGap = (gap, minsAway) => {
-    const returnTime = gap.returnTime;
-    const sendTime = returnTime - (minsAway * 60 * 1000);
-    
-    if (sendTime < serverTime.getTime()) {
-      alert("Cannot create a plan where Send Time is in the past! Please choose a smaller minute delay.");
-      return;
+    try {
+      const plan = planRecallSnipe({
+        targetReturnTime: gap.returnTime,
+        sendDelayMinutes: minsAway,
+        serverTime
+      });
+
+      const newPlan = {
+        id: plan.id,
+        targetReturnTime: plan.targetReturnTime.toISOString(),
+        sendTime: plan.sendTime.toISOString(),
+        recallTime: plan.recallTime.toISOString(),
+        gapDescription: gap.desc,
+        delayMinutes: minsAway
+      };
+
+      const updatedGroups = groups.map(g => {
+        if (g.id === activeGroup.id) {
+          return { 
+            ...g, 
+            plans: [...g.plans, newPlan].sort((a,b) => new Date(a.sendTime).getTime() - new Date(b.sendTime).getTime()) 
+          };
+        }
+        return g;
+      });
+      setGroups(updatedGroups);
+    } catch (err) {
+      alert(err.message);
     }
-
-    const { recallTime } = calculateMidpointRecall(returnTime, sendTime);
-
-    const newPlan = {
-      id: Date.now().toString(),
-      targetReturnTime: new Date(returnTime).toISOString(),
-      sendTime: new Date(sendTime).toISOString(),
-      recallTime: new Date(recallTime).toISOString(),
-      gapDescription: gap.desc,
-      delayMinutes: minsAway
-    };
-
-    const updatedGroups = groups.map(g => {
-      if (g.id === activeGroup.id) {
-        return { 
-          ...g, 
-          plans: [...g.plans, newPlan].sort((a,b) => new Date(a.sendTime).getTime() - new Date(b.sendTime).getTime()) 
-        };
-      }
-      return g;
-    });
-    setGroups(updatedGroups);
   };
 
   const deletePlan = (planId) => {
@@ -506,32 +440,23 @@ function RecallSnipeContent() {
     }
 
     try {
-      const res = await fetch('/api/snipe/operations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          worldId: activeWorldId,
-          targetTownId: activeGroup.townId,
-          originTownId: activeGroup.townId,
-          targetTownName: activeGroup.name,
-          targetReturnTime: plan.targetReturnTime,
-          sendTime: plan.sendTime,
-          recallTime: plan.recallTime,
-          type: 'recall',
-          label: plan.gapDescription || `Recall Snipe (${activeGroup.name})`
-        })
+      await RemoteOperationsAdapter.saveOperation({
+        worldId: activeWorldId,
+        targetTownId: activeGroup.townId,
+        originTownId: activeGroup.townId,
+        targetTownName: activeGroup.name,
+        targetReturnTime: plan.targetReturnTime,
+        sendTime: plan.sendTime,
+        recallTime: plan.recallTime,
+        type: 'recall',
+        label: plan.gapDescription || `Recall Snipe (${activeGroup.name})`
       });
 
-      if (res.ok) {
-        setSavedOpMsg(`Plan saved to Tactical Operations!`);
-        setTimeout(() => setSavedOpMsg(''), 3500);
-      } else {
-        const d = await res.json();
-        alert(d.error || "Failed to save plan to database");
-      }
+      setSavedOpMsg(`Plan saved to Tactical Operations!`);
+      setTimeout(() => setSavedOpMsg(''), 3500);
     } catch (e) {
       console.error(e);
-      alert("Network error saving plan");
+      alert(e.message || "Failed to save plan to database");
     }
   };
 

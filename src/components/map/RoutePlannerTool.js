@@ -7,22 +7,25 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-// Official Grepolis base unit speeds
-const NAVAL_UNITS = [
-  { id: 'bireme', name: 'Bireme (Birema)', baseSpeed: 15, role: 'Defense', icon: Shield, color: '#38bdf8' },
-  { id: 'light_ship', name: 'Light Ship (Gyújtó)', baseSpeed: 13, role: 'Offense', icon: Flame, color: '#f87171' },
-  { id: 'fast_transporter', name: 'Fast Transport (Gyors)', baseSpeed: 15, role: 'Transport', icon: Wind, color: '#34d399' },
-  { id: 'slow_transporter', name: 'Slow Transport (Lassú)', baseSpeed: 8, role: 'Transport', icon: Anchor, color: '#94a3b8' },
-  { id: 'trireme', name: 'Trireme (Trirema)', baseSpeed: 9, role: 'Hybrid', icon: Shield, color: '#a78bfa' },
-  { id: 'colonize_ship', name: 'Colony Ship (Gyarmatosító)', baseSpeed: 3, role: 'Conquest', icon: Compass, color: '#fbbf24' }
-];
+import { 
+  NAVAL_UNITS as BASE_NAVAL_UNITS, 
+  MYTHICAL_FLYING_UNITS 
+} from '@/lib/operations/units';
 
-const MYTHICAL_FLYING_UNITS = [
-  { id: 'pegasus', name: 'Pegasus', baseSpeed: 35, color: '#67e8f9' },
-  { id: 'harpy', name: 'Harpy', baseSpeed: 25, color: '#f43f5e' },
-  { id: 'manticore', name: 'Manticore', baseSpeed: 22, color: '#fb923c' },
-  { id: 'griffin', name: 'Griffin', baseSpeed: 18, color: '#eab308' }
-];
+const ICON_MAP = {
+  Shield,
+  Flame,
+  Wind,
+  Anchor,
+  Compass,
+  Sparkles
+};
+
+// Map domain units to presentation icons
+const NAVAL_UNITS = BASE_NAVAL_UNITS.map(unit => ({
+  ...unit,
+  icon: ICON_MAP[unit.iconName] || Shield
+}));
 
 export { 
   calculateDistance, 

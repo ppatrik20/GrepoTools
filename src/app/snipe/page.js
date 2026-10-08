@@ -5,7 +5,11 @@ import { useSearchParams } from 'next/navigation';
 import { Crosshair, Plus, Trash2, Clock, Swords, Shield, RefreshCw, ArrowRight, Loader2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import SnipeQueueItem from '@/components/SnipeQueueItem';
-import { calculateDistance, calculateTravelTimeSeconds, formatDuration } from '@/components/map/RoutePlannerTool';
+import { 
+  planAttackOperation, 
+  resolveOperationTargeting 
+} from '@/lib/operations/OperationPlanner';
+import { LocalOperationsAdapter } from '@/lib/operations/OperationsStorage';
 
 function SnipeTimerContent() {
   const { activeWorldId, activeWorld } = useApp();
@@ -28,37 +32,27 @@ function SnipeTimerContent() {
     async function ingestParams() {
       try {
         const worldParam = activeWorldId || 'hu119';
-        let originTown = null;
-        let targetTown = null;
+        let originPayload = null;
+        let targetPayload = null;
 
         if (originTownId) {
           const res = await fetch(`/api/world/town/${originTownId}?world=${worldParam}`);
-          if (res.ok) {
-            const data = await res.json();
-            originTown = data.town || data;
-          }
+          if (res.ok) originPayload = await res.json();
         }
         if (targetTownId) {
           const res = await fetch(`/api/world/town/${targetTownId}?world=${worldParam}`);
-          if (res.ok) {
-            const data = await res.json();
-            targetTown = data.town || data;
-          }
+          if (res.ok) targetPayload = await res.json();
         }
 
-        if (originTown && targetTown) {
-          setLabel(`${originTown.name} → ${targetTown.name}`);
-          const dist = calculateDistance(originTown, targetTown);
-          const worldSpeed = activeWorld?.speed || 3;
-          const unitSpeed = activeWorld?.unitSpeed || 1;
-          const travelSecs = calculateTravelTimeSeconds(dist, 3, worldSpeed, unitSpeed);
-          setTravelTime(formatDuration(travelSecs));
-          setType('cs');
-        } else if (targetTown) {
-          setLabel(`Operation on ${targetTown.name}`);
-        } else if (originTown) {
-          setLabel(`Operation from ${originTown.name}`);
-        }
+        const targeting = resolveOperationTargeting({
+          originPayload,
+          targetPayload,
+          activeWorld
+        });
+
+        if (targeting.label) setLabel(targeting.label);
+        if (targeting.travelTime) setTravelTime(targeting.travelTime);
+        if (targeting.type) setType(targeting.type);
       } catch (err) {
         console.error("Failed to ingest snipe query params:", err);
       }
@@ -70,59 +64,25 @@ function SnipeTimerContent() {
   // Load from local storage for active world
   useEffect(() => {
     if (!activeWorldId) return;
-    const saved = localStorage.getItem(`grepo-operations-queue_${activeWorldId}`) || localStorage.getItem('grepo-operations-queue');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const revived = parsed.map(op => ({
-          ...op,
-          windowStart: new Date(op.windowStart),
-          windowEnd: new Date(op.windowEnd),
-          targetDate: new Date(op.targetDate)
-        }));
-        setQueue(revived);
-      } catch (e) {
-        console.error("Failed to parse queue", e);
-      }
-    } else {
-      setQueue([]);
-    }
+    setQueue(LocalOperationsAdapter.getQueue(activeWorldId));
   }, [activeWorldId]);
 
   // Save to local storage
   useEffect(() => {
     if (!activeWorldId) return;
-    localStorage.setItem(`grepo-operations-queue_${activeWorldId}`, JSON.stringify(queue));
+    LocalOperationsAdapter.setQueue(activeWorldId, queue);
   }, [queue, activeWorldId]);
 
   const addToQueue = (e) => {
     e.preventDefault();
     if (!targetTime || !travelTime) return;
 
-    const [tH, tM, tS] = targetTime.split(':').map(Number);
-    const [trH, trM, trS] = travelTime.split(':').map(Number);
-
-    const targetDate = new Date();
-    targetDate.setHours(tH, tM, tS, 0);
-    
-    if (targetDate.getTime() < new Date().getTime()) {
-      targetDate.setDate(targetDate.getDate() + 1);
-    }
-
-    const travelMs = (trH * 3600 + trM * 60 + trS) * 1000;
-    
-    const idealLaunchDate = new Date(targetDate.getTime() - travelMs);
-    const windowStart = new Date(idealLaunchDate.getTime() - 10000);
-    const windowEnd = new Date(idealLaunchDate.getTime() + 10000);
-
-    const newOp = {
-      id: Date.now().toString() + Math.random().toString(36).substring(7),
-      label: label || 'Unnamed Operation',
-      type,
-      targetDate,
-      windowStart,
-      windowEnd,
-    };
+    const newOp = planAttackOperation({
+      targetLandingTime: targetTime,
+      travelTime,
+      label,
+      type
+    });
 
     setQueue([...queue, newOp].sort((a, b) => a.windowStart.getTime() - b.windowStart.getTime()));
     

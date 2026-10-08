@@ -5,6 +5,10 @@ import {
   formatDuration, 
   unwrapTownPayload 
 } from './traveltime.js';
+import {
+  resolveOperationTargeting,
+  resolveRecallTargeting
+} from './operations/OperationPlanner.js';
 
 describe('Snipe Parameter Ingestion & Town Payload Unwrapping', () => {
   test('unwraps nested API response { town: { id, name, x, y } } properly', () => {
@@ -59,7 +63,7 @@ describe('Snipe Parameter Ingestion & Town Payload Unwrapping', () => {
     expect(town.y).toBe(504);
   });
 
-  test('simulates /snipe query ingestion: resolves originTown and targetTown labels & CS travel time', () => {
+  test('resolves /snipe query targeting: resolves originTown and targetTown labels & CS travel time', () => {
     const originApiResponse = {
       town: {
         id: '10',
@@ -86,28 +90,23 @@ describe('Snipe Parameter Ingestion & Town Payload Unwrapping', () => {
       conquests: []
     };
 
-    const originTown = unwrapTownPayload(originApiResponse);
-    const targetTown = unwrapTownPayload(targetApiResponse);
+    // Test through production OperationPlanner engine
+    const targeting = resolveOperationTargeting({
+      originPayload: originApiResponse,
+      targetPayload: targetApiResponse,
+      activeWorld: { speed: 3, unitSpeed: 1 }
+    });
 
-    expect(originTown).toBeTruthy();
-    expect(targetTown).toBeTruthy();
-
-    // 1. Operation label format
-    const label = `${originTown.name} → ${targetTown.name}`;
-    expect(label).toBe('Corinth Port → Delphi Citadel');
-    expect(label).not.toContain('undefined');
-
-    // 2. Distance calculation: dx=6, dy=8 -> sqrt(36+64) = 10.0
-    const distance = calculateDistance(originTown, targetTown);
-    expect(distance).toBe(10.0);
-
-    // 3. Travel time: Colony Ship (speed 3) on World Speed 3, Unit Speed 1: (10.0 * 50) / (3 * 3 * 1) = 55.55 min -> 3333s = 00:55:33
-    const travelSecs = calculateTravelTimeSeconds(distance, 3, 3, 1);
-    expect(travelSecs).toBe(3333);
-    expect(formatDuration(travelSecs)).toBe('00:55:33');
+    expect(targeting.originTown).toBeTruthy();
+    expect(targeting.targetTown).toBeTruthy();
+    expect(targeting.label).toBe('Corinth Port → Delphi Citadel');
+    expect(targeting.distance).toBe(10.0);
+    expect(targeting.travelSeconds).toBe(3333);
+    expect(targeting.travelTime).toBe('00:55:33');
+    expect(targeting.type).toBe('cs');
   });
 
-  test('simulates /snipe/recall ingestion: sets defense group name and origin attacker metadata', () => {
+  test('resolves /snipe/recall targeting: sets defense group name and origin attacker metadata', () => {
     const targetApiResponse = {
       town: {
         id: '100',
@@ -126,28 +125,19 @@ describe('Snipe Parameter Ingestion & Town Payload Unwrapping', () => {
       }
     };
 
-    const targetTown = unwrapTownPayload(targetApiResponse);
-    const originTown = unwrapTownPayload(originApiResponse);
+    const recallTargeting = resolveRecallTargeting({
+      originPayload: originApiResponse,
+      targetPayload: targetApiResponse,
+      existingGroups: [],
+      activeWorld: { worldType: 'siege' }
+    });
 
-    // Defense group setup
-    expect(targetTown?.name).toBe('Thebes Fortress');
-    const newGroup = {
-      id: 'grp_1',
-      name: targetTown.name,
-      townId: targetTown.id,
-      worldType: 'siege',
-      movements: [],
-      plans: []
-    };
-    expect(newGroup.name).toBe('Thebes Fortress');
-    expect(newGroup.townId).toBe('100');
-
-    // Origin attacker metadata
-    expect(originTown?.name).toBe('Mycenae Bastion');
-    const movAttacker = originTown.name;
-    const movAttackerId = originTown.id;
-    expect(movAttacker).toBe('Mycenae Bastion');
-    expect(movAttackerId).toBe('200');
+    expect(recallTargeting.groups.length).toBe(1);
+    expect(recallTargeting.groups[0].name).toBe('Thebes Fortress');
+    expect(recallTargeting.groups[0].townId).toBe('100');
+    expect(recallTargeting.activeGroupId).toBe('grp_100');
+    expect(recallTargeting.movAttacker).toBe('Mycenae Bastion');
+    expect(recallTargeting.movAttackerId).toBe('200');
   });
 
   test('handles same-island transit distance unwrapped from API response correctly', () => {

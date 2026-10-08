@@ -6,6 +6,10 @@ import {
   Target, Activity, Map as MapIcon, ShieldAlert, Crosshair, MapPin, 
   Globe, User, ArrowUpRight, ArrowDownRight, RefreshCw, Plus, Clock, Swords
 } from 'lucide-react';
+import { 
+  LocalOperationsAdapter, 
+  RemoteOperationsAdapter 
+} from '@/lib/operations/OperationsStorage';
 
 export default function CommandCenter() {
   const { activeWorld, activeWorldId, activePlayer, masterData, loadingPlayer, switchPlayer } = useApp();
@@ -18,25 +22,16 @@ export default function CommandCenter() {
     if (!activeWorldId) return;
 
     setLoadingOps(true);
-    fetch(`/api/snipe/operations?world=${activeWorldId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setDbOperations(data);
+    RemoteOperationsAdapter.fetchOperations({ worldId: activeWorldId })
+      .then(ops => {
+        setDbOperations(ops);
         setLoadingOps(false);
       })
       .catch(() => setLoadingOps(false));
 
     // Load active recall groups from local storage
-    try {
-      const saved = localStorage.getItem(`grepo-recall-groups_${activeWorldId}`) || localStorage.getItem('grepo-recall-groups');
-      if (saved) {
-        setActiveSnipes(JSON.parse(saved));
-      } else {
-        setActiveSnipes([]);
-      }
-    } catch(e) {
-      setActiveSnipes([]);
-    }
+    const loadedGroups = LocalOperationsAdapter.getRecallGroups(activeWorldId);
+    setActiveSnipes(loadedGroups);
   }, [activeWorldId]);
 
   return (
