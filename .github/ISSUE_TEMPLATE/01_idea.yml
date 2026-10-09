@@ -1,0 +1,71 @@
+name: "💡 Idea / Proposal"
+description: "Propose a new feature, UX mechanic, tactical overlay, or system improvement"
+title: "[Idea]: "
+labels: ["type:idea", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 💡 Idea & Feature Proposal
+        Use this template to capture high-level ideas, gameplay mechanic proposals, and user-facing concepts before committing to a formal architecture plan.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Target Domain / Area
+      description: Which area of Grepolis Tactics does this idea touch?
+      options:
+        - "World Map & WebGL (area:map)"
+        - "Tactical Intel & Radar (area:intel)"
+        - "Troop Movement & Operations (area:operations)"
+        - "Tactical Pinboard (area:pins)"
+        - "World Data Sync & Ingestion (area:sync)"
+        - "Authentication & Administration (area:auth)"
+        - "UI/UX & Design System (area:ui)"
+        - "Architecture & Performance (area:arch)"
+        - "Other / Cross-cutting"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Tactical Opportunity
+      description: What challenge, tactical friction, or opportunity does this idea address?
+      placeholder: |
+        Example: When planning large alliance conquests across ocean borders, players struggle to see which frontlines have defensive coverage gaps...
+    validations:
+      required: true
+  - type: textarea
+    id: concept
+    attributes:
+      label: Proposed Concept & Behavior
+      description: How should this work from a player or tactician perspective?
+      placeholder: |
+        Example: Introduce a frontline defense heat layer with color gradients showing alliance troop concentration...
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Expected Impact & Value
+      description: Why is this valuable for alliance gameplay or tactical operations?
+      placeholder: |
+        - Streamlines war room decision making
+        - Reduces coordination errors during ops
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives & Open Questions
+      description: What other approaches did you consider? What needs further investigation or prototyping?
+      placeholder: Any unresolved questions, trade-offs, or questions for grilling/discovery...
+    validations:
+      required: false
+  - type: input
+    id: related_refs
+    attributes:
+      label: Related ADRs, Issues, or Glossary Terms
+      description: Cross-reference existing ADRs, GLOSSARY.md concepts, or issues.
+      placeholder: "e.g. ADR-0001, GLOSSARY.md#contested-frontline, #42"
+    validations:
+      required: false

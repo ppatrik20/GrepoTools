@@ -1,0 +1,151 @@
+name: "Issue Slash Commands"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  commands:
+    name: "Handle Issue Commands"
+    runs-on: ubuntu-latest
+    if: "!github.event.issue.pull_request && startsWith(github.event.comment.body, '/')"
+    steps:
+      - name: "Execute Slash Commands"
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const comment = context.payload.comment;
+            const issue = context.payload.issue;
+            if (!comment || !issue) return;
+
+            const existingLabels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
+            const stateLabels = ['needs-triage', 'needs-info', 'ready-for-agent', 'ready-for-human', 'wontfix'];
+            const priorityLabels = ['priority:critical', 'priority:high', 'priority:normal', 'priority:low'];
+
+            const lines = comment.body.split('\n');
+            let executed = false;
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('/')) continue;
+
+              const [cmd, ...args] = trimmed.split(/\s+/);
+              const command = cmd.toLowerCase();
+
+              if (command === '/ready' || command === '/ready-agent') {
+                executed = true;
+                // Add ready-for-agent, remove conflicting states
+                await updateState('ready-for-agent');
+              } else if (command === '/ready-human') {
+                executed = true;
+                await updateState('ready-for-human');
+              } else if (command === '/needs-info') {
+                executed = true;
+                await updateState('needs-info');
+              } else if (command === '/triage') {
+                executed = true;
+                await updateState('needs-triage');
+              } else if (command === '/wontfix') {
+                executed = true;
+                await updateState('wontfix');
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  state: 'closed',
+                  state_reason: 'not_planned'
+                });
+              } else if (command === '/claim') {
+                executed = true;
+                await github.rest.issues.addAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  assignees: [comment.user.login]
+                });
+                if (existingLabels.includes('needs-triage')) {
+                  await removeLabelSafely('needs-triage');
+                }
+              } else if (command === '/unclaim') {
+                executed = true;
+                await github.rest.issues.removeAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  assignees: [comment.user.login]
+                });
+              } else if (command === '/priority' && args.length > 0) {
+                executed = true;
+                const prio = args[0].toLowerCase().replace(/^priority:/, '');
+                const targetPrio = `priority:${prio}`;
+                if (priorityLabels.includes(targetPrio)) {
+                  for (const p of priorityLabels) {
+                    if (existingLabels.includes(p) && p !== targetPrio) {
+                      await removeLabelSafely(p);
+                    }
+                  }
+                  if (!existingLabels.includes(targetPrio)) {
+                    await github.rest.issues.addLabels({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      labels: [targetPrio]
+                    });
+                  }
+                }
+              } else if (command === '/area' && args.length > 0) {
+                executed = true;
+                const area = args[0].toLowerCase().replace(/^area:/, '');
+                const targetArea = `area:${area}`;
+                if (!existingLabels.includes(targetArea)) {
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    labels: [targetArea]
+                  });
+                }
+              }
+            }
+
+            if (executed) {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: comment.id,
+                content: 'rocket'
+              });
+            }
+
+            async function updateState(newState) {
+              for (const state of stateLabels) {
+                if (state !== newState && existingLabels.includes(state)) {
+                  await removeLabelSafely(state);
+                }
+              }
+              if (!existingLabels.includes(newState)) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: [newState]
+                });
+              }
+            }
+
+            async function removeLabelSafely(label) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  name: label
+                });
+              } catch (e) {
+                console.warn(`Could not remove ${label}:`, e.message);
+              }
+            }

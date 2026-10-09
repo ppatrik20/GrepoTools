@@ -1,0 +1,152 @@
+name: "Issue Triage & Automation"
+
+on:
+  issues:
+    types: [opened, edited, labeled, assigned, closed, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage:
+    name: "Automate Issue Triage"
+    runs-on: ubuntu-latest
+    if: "!github.event.issue.pull_request"
+    steps:
+      - name: "Process Issue State & Labels"
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            if (!issue) return;
+
+            const existingLabels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
+            const toAdd = new Set();
+            const toRemove = new Set();
+
+            const title = (issue.title || '').trim();
+            const body = (issue.body || '').toLowerCase();
+
+            // 1. Process Comment Updates (Reporter replied on needs-info)
+            if (context.eventName === 'issue_comment') {
+              const comment = context.payload.comment;
+              const isReporter = comment.user && issue.user && comment.user.login === issue.user.login;
+              
+              if (isReporter && existingLabels.includes('needs-info')) {
+                toRemove.add('needs-info');
+                toAdd.add('needs-triage');
+                console.log(`Reporter ${comment.user.login} responded; returning issue #${issue.number} to needs-triage`);
+                
+                await github.rest.reactions.createForIssueComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id,
+                  content: 'eyes'
+                });
+              }
+            }
+
+            // 2. Closed issues (Not planned -> wontfix)
+            if (context.eventName === 'issues' && context.payload.action === 'closed') {
+              if (issue.state_reason === 'not_planned') {
+                toAdd.add('wontfix');
+              }
+            }
+
+            // 3. Issue Opened or Edited
+            if (context.eventName === 'issues' && (context.payload.action === 'opened' || context.payload.action === 'edited')) {
+              // Type Detection
+              if (title.startsWith('[Idea]') || body.includes('type:idea')) {
+                toAdd.add('type:idea');
+              } else if (title.startsWith('[Plan]') || body.includes('type:plan')) {
+                toAdd.add('type:plan');
+              } else if (title.startsWith('[Bug]') || body.includes('type:bug')) {
+                toAdd.add('type:bug');
+              } else if (title.startsWith('[Task]') || title.startsWith('[Impl]') || body.includes('type:task')) {
+                toAdd.add('type:task');
+              }
+
+              // Area Detection
+              const areaMap = {
+                'area:map': ['area:map', 'world map & webgl'],
+                'area:intel': ['area:intel', 'tactical intel & radar'],
+                'area:operations': ['area:operations', 'troop movement & operations'],
+                'area:pins': ['area:pins', 'tactical pinboard'],
+                'area:sync': ['area:sync', 'world data sync & ingestion'],
+                'area:auth': ['area:auth', 'authentication & administration'],
+                'area:ui': ['area:ui', 'ui/ux & design system'],
+                'area:arch': ['area:arch', 'architecture & performance']
+              };
+
+              for (const [areaLabel, keywords] of Object.entries(areaMap)) {
+                if (keywords.some(k => body.includes(k) || title.toLowerCase().includes(`[${k}]`))) {
+                  toAdd.add(areaLabel);
+                }
+              }
+
+              // Priority Detection
+              if (body.includes('priority:critical')) {
+                toAdd.add('priority:critical');
+              } else if (body.includes('priority:high')) {
+                toAdd.add('priority:high');
+              } else if (body.includes('priority:normal')) {
+                toAdd.add('priority:normal');
+              } else if (body.includes('priority:low')) {
+                toAdd.add('priority:low');
+              }
+
+              // Execution Target & Initial State
+              if (body.includes('ready-for-agent')) {
+                toAdd.add('ready-for-agent');
+                toRemove.add('needs-triage');
+              } else if (body.includes('ready-for-human')) {
+                toAdd.add('ready-for-human');
+                toRemove.add('needs-triage');
+              } else {
+                const canonicalStates = ['needs-triage', 'needs-info', 'ready-for-agent', 'ready-for-human', 'wontfix'];
+                const hasState = existingLabels.some(l => canonicalStates.includes(l));
+                if (!hasState) {
+                  toAdd.add('needs-triage');
+                }
+              }
+            }
+
+            // 4. Assignment Transition
+            if (context.eventName === 'issues' && context.payload.action === 'assigned') {
+              if (existingLabels.includes('needs-triage')) {
+                toRemove.add('needs-triage');
+              }
+            }
+
+            // 5. Apply Labels
+            const finalToAdd = Array.from(toAdd).filter(l => !existingLabels.includes(l));
+            if (finalToAdd.length > 0) {
+              console.log(`Adding labels to #${issue.number}:`, finalToAdd);
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: finalToAdd
+              });
+            }
+
+            // 6. Remove Labels
+            for (const label of toRemove) {
+              if (existingLabels.includes(label)) {
+                try {
+                  console.log(`Removing label '${label}' from #${issue.number}`);
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    name: label
+                  });
+                } catch (e) {
+                  console.warn(`Could not remove label ${label}:`, e.message);
+                }
+              }
+            }

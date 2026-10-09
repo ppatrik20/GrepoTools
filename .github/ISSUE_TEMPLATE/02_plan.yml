@@ -1,0 +1,80 @@
+name: "🗺️ Plan / Epic / Architecture"
+description: "Define an architectural plan, multi-slice roadmap, or major refactoring initiative"
+title: "[Plan]: "
+labels: ["type:plan", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🗺️ Architectural Plan & Epic Tracker
+        Use this template to specify an overarching initiative, define its architectural boundaries, and break it down into vertical tracer-bullet implementations.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Target Domain / Area
+      description: Which primary architectural boundary is governed by this plan?
+      options:
+        - "World Map & WebGL (area:map)"
+        - "Tactical Intel & Radar (area:intel)"
+        - "Troop Movement & Operations (area:operations)"
+        - "Tactical Pinboard (area:pins)"
+        - "World Data Sync & Ingestion (area:sync)"
+        - "Authentication & Administration (area:auth)"
+        - "UI/UX & Design System (area:ui)"
+        - "Architecture & Performance (area:arch)"
+        - "Other / Multi-area"
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective & Strategic Scope
+      description: What is the core goal of this plan and what capabilities will it unlock?
+      placeholder: |
+        State the objective, context, and motivation...
+    validations:
+      required: true
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Domain Seams & Architectural Alignment
+      description: How does this align with existing ADRs (docs/adr/) and GLOSSARY.md? What interfaces, data models, or state seams are introduced?
+      placeholder: |
+        - Architecture boundaries (seams)
+        - DB Schema / Prisma modifications
+        - Client vs Server state lifecycle
+        - Relevant ADRs: docs/adr/000X-...
+    validations:
+      required: true
+  - type: textarea
+    id: breakdown
+    attributes:
+      label: Work Breakdown Structure (Tracer Bullets)
+      description: Breakdown into discrete vertical slices in execution/dependency order.
+      value: |
+        - [ ] Slice 1: [Task title] (Blocked by: None)
+        - [ ] Slice 2: [Task title] (Blocked by: Slice 1)
+        - [ ] Slice 3: [Task title] (Blocked by: Slice 2)
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-Goals & Explicit Out-of-Scope
+      description: What are we explicitly NOT doing in this plan to guard against scope creep?
+      placeholder: |
+        - Not building X in this cycle
+        - Not modifying legacy table Y
+    validations:
+      required: false
+  - type: textarea
+    id: risks
+    attributes:
+      label: Dependencies, Risks & Fallback Strategy
+      description: External dependencies, blast radiuses, data migration risks, or performance considerations.
+      placeholder: |
+        - Blast radius analysis
+        - Migration strategy (Expand-Contract)
+        - Fallbacks
+    validations:
+      required: false

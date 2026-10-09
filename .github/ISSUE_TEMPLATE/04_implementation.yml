@@ -1,0 +1,93 @@
+name: "⚡ Implementation / Task"
+description: "A concrete tracer-bullet vertical slice ready for implementation by an agent or human"
+title: "[Task]: "
+labels: ["type:task", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### ⚡ Implementation Ticket (Tracer Bullet)
+        Each implementation issue represents a narrow, end-to-end vertical slice through schema, API, UI, and tests that delivers demoable behavior.
+  - type: input
+    id: parent_plan
+    attributes:
+      label: Parent Plan or Epic Reference
+      description: Link to the parent plan or originating issue (e.g., `#42` or `Part of #42`).
+      placeholder: "#42"
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Target Domain / Area
+      options:
+        - "World Map & WebGL (area:map)"
+        - "Tactical Intel & Radar (area:intel)"
+        - "Troop Movement & Operations (area:operations)"
+        - "Tactical Pinboard (area:pins)"
+        - "World Data Sync & Ingestion (area:sync)"
+        - "Authentication & Administration (area:auth)"
+        - "UI/UX & Design System (area:ui)"
+        - "Architecture & Performance (area:arch)"
+        - "Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: execution_target
+    attributes:
+      label: Execution Target
+      description: Who is suited to implement this slice?
+      options:
+        - "ready-for-agent (Self-contained, testable, ready for autonomous AI agent)"
+        - "ready-for-human (Requires human credentials, UX design choices, or manual checks)"
+        - "needs-triage (Needs further specification before execution)"
+    validations:
+      required: true
+  - type: textarea
+    id: what_to_build
+    attributes:
+      label: What to Build (End-to-End Behavior)
+      description: The user-visible or system-level behavior this ticket makes work (not just a checklist of files).
+      placeholder: |
+        When the user activates the X control, system performs Y and updates Z in real-time...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Specific verifiable statements that must all pass for this ticket to be marked done.
+      value: |
+        - [ ] Behavior satisfies the specification
+        - [ ] Edge cases handled
+        - [ ] Automated tests written and passing
+    validations:
+      required: true
+  - type: input
+    id: blocked_by
+    attributes:
+      label: Blocked by
+      description: The ticket numbers gating this one, or "None (can start immediately)".
+      placeholder: "None (can start immediately) or #12, #14"
+    validations:
+      required: true
+  - type: textarea
+    id: technical_seams
+    attributes:
+      label: Technical Seams & Architecture Notes
+      description: Relevant files, Prisma models, ADRs, or state boundaries to respect.
+      placeholder: |
+        - Touching `src/lib/map/...`
+        - Follows ADR `docs/adr/0002-...`
+    validations:
+      required: false
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification & Test Plan
+      description: How to verify this slice (e.g. test command, script, or browser flow).
+      placeholder: |
+        - `npm test`
+        - Playwright test: `tests/e2e/...`
+    validations:
+      required: false

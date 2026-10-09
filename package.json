@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "sync": "node scripts/sync.js"
+    "sync": "node scripts/sync.js",
+    "labels:sync": "node scripts/sync-labels.js",
+    "issue:create": "node scripts/create-issue.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

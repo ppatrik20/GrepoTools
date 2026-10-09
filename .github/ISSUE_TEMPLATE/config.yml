@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🗺️ Architecture & Blueprint Docs
+    url: https://github.com/perfi20/GrepoTools/tree/main/docs
+    about: Read architecture documents, ADRs, and tactical blueprints.
+  - name: 📖 Domain Glossary & Terminology
+    url: https://github.com/perfi20/GrepoTools/blob/main/GLOSSARY.md
+    about: Consult domain terms, coordinate math, and tactical definitions.
+  - name: ⚙️ Agent & Triage Guidelines
+    url: https://github.com/perfi20/GrepoTools/blob/main/docs/agents/issue-tracker.md
+    about: Review conventions for issue triage, tracer bullets, and agent workflows.

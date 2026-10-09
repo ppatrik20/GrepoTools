@@ -1,0 +1,87 @@
+name: "🐛 Issue / Bug Report"
+description: "Report a bug, regression, calculation defect, or unexpected behavior"
+title: "[Bug]: "
+labels: ["type:bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🐛 Bug & Issue Report
+        Please provide clear reproduction steps and context so we can verify and diagnose the issue rapidly.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Domain / Area
+      options:
+        - "World Map & WebGL (area:map)"
+        - "Tactical Intel & Radar (area:intel)"
+        - "Troop Movement & Operations (area:operations)"
+        - "Tactical Pinboard (area:pins)"
+        - "World Data Sync & Ingestion (area:sync)"
+        - "Authentication & Administration (area:auth)"
+        - "UI/UX & Design System (area:ui)"
+        - "Architecture & Performance (area:arch)"
+        - "Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity / Priority
+      options:
+        - "priority:critical (System down, database sync corruption, blocking operations)"
+        - "priority:high (Major tactical feature broken, incorrect battle or transit calculation)"
+        - "priority:normal (Feature partially impaired, functional workaround exists)"
+        - "priority:low (Visual glitch, typo, or minor convenience issue)"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Problem
+      description: Concise summary of what is broken or behaving unexpectedly.
+      placeholder: What happens?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to trigger the bug.
+      placeholder: |
+        1. Open `/map` with world `en120`
+        2. Set filter to ...
+        3. Click on ...
+        4. Observe error in console / UI
+    validations:
+      required: true
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Expected vs Actual Behavior
+      description: What was expected to happen versus what actually happened.
+      placeholder: |
+        **Expected:** Bézier curve points align exactly with target town coordinates.
+        **Actual:** Curve points render with offset (x + 128px) at high zoom levels.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment & World Context
+      description: Grepolis world ID, Browser, OS, Node version, or Docker setup.
+      placeholder: |
+        - World: en120
+        - Browser: Chrome 130
+        - OS: Windows 11
+        - Dev Environment: Docker / Node 20 / Next.js
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs, Stack Traces, or Screenshots
+      description: Paste relevant terminal logs, browser console output, or drag-and-drop screenshots.
+      placeholder: Paste stack traces or logs here...
+    validations:
+      required: false

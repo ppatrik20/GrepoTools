@@ -1,18 +1,65 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations, or use the project helper scripts in `scripts/`.
 
-## Conventions
+## 4-Tier Issue Architecture
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
+The tracker manages the complete project lifecycle across 4 distinct issue types:
+
+1. **💡 Idea (`type:idea`)**: Early concepts, gameplay mechanic suggestions, UX improvements, and proposals.
+2. **🗺️ Plan (`type:plan`)**: Epics, architectural designs, roadmap initiatives, and ADR-aligned plans. Holds checklists of implementation sub-issues.
+3. **🐛 Bug / Issue (`type:bug`)**: Defects, regressions, sync errors, and broken calculations.
+4. **⚡ Implementation / Task (`type:task`)**: Concrete, verifiable tracer-bullet vertical slices ready for implementation by an agent (`ready-for-agent`) or human (`ready-for-human`).
+
+---
+
+## Conventions & CLI Operations
+
+- **Create an issue**:
+  - Via helper script: `node scripts/create-issue.js --type <idea|plan|bug|task> --title "..." [options]`
+  - Via `gh`: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
 - **Read an issue**: `gh issue view <number> --json number,title,body,labels,comments`.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Make an issue a sub-issue of a parent**: `gh issue create --parent <parent> ...`, or `gh issue edit <parent> --add-sub-issue <child>` afterwards (`gh` 2.94+). Older `gh`: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` (database id, as in **Blocking** below). Without sub-issues, put `Part of #<parent>` at the top of the child body.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **Sync repo labels**: `npm run labels:sync` (reads `.github/labels.yml`).
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+
+---
+
+## GitHub Forms & Automation
+
+### 1. Issue Form Templates (`.github/ISSUE_TEMPLATE/`)
+When opening issues via the GitHub web UI, structured interactive forms are presented:
+- `01_idea.yml`: Problem, proposed concept, expected impact, alternatives, references.
+- `02_plan.yml`: Objective, domain seams & ADRs, work breakdown checklist, non-goals, risk assessment.
+- `03_bug.yml`: Affected area, severity, steps to reproduce, expected vs actual, environment, logs.
+- `04_implementation.yml`: Parent plan reference, what to build, acceptance criteria, blocked-by, execution target.
+
+### 2. Automated Triage Workflow (`.github/workflows/issue-triage.yml`)
+Runs on issue creation and updates:
+- **Auto-labeling**: Infers type (`type:idea`, `type:plan`, `type:bug`, `type:task`), domain (`area:*`), and priority (`priority:*`) from template inputs and title tags.
+- **State initialization**: Assigns `needs-triage` by default unless marked `ready-for-agent` / `ready-for-human`.
+- **Assignment transition**: Automatically removes `needs-triage` when an assignee is added.
+- **Information loopback**: When the reporter comments on an issue with `needs-info`, the issue automatically transitions back to `needs-triage`.
+- **Closure handling**: Issues closed as "not planned" automatically receive `wontfix`.
+
+### 3. Comment Slash Commands / ChatOps (`.github/workflows/issue-commands.yml`)
+Maintainers and agents can manage issue states directly via comments:
+- `/triage` — Resets state to `needs-triage`.
+- `/ready` or `/ready-agent` — Applies `ready-for-agent`, removes `needs-triage` and `needs-info`.
+- `/ready-human` — Applies `ready-for-human`, removes `needs-triage` and `needs-info`.
+- `/needs-info` — Applies `needs-info`, removes other triage states.
+- `/claim` — Assigns the issue to the commenter.
+- `/unclaim` — Removes commenter from assignees.
+- `/wontfix` — Applies `wontfix` and closes the issue as not planned.
+- `/priority <critical|high|normal|low>` — Sets the priority tier.
+- `/area <name>` — Applies `area:<name>`.
+
+---
 
 ## Pull requests as a triage surface
 
@@ -26,13 +73,17 @@ When set to `yes`, PRs run through the same labels and states as issues, using t
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
 
+---
+
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+Create a GitHub issue using `gh issue create` or `node scripts/create-issue.js`.
 
 ## When a skill says "fetch the relevant ticket"
 
 Read it as in **Read an issue** above.
+
+---
 
 ## Wayfinding operations
 

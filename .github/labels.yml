@@ -1,0 +1,114 @@
+# GitHub Labels Taxonomy for Grepolis Tactics
+# Used by .github/workflows/labels-sync.yml and scripts/sync-labels.js
+
+- name: "type:idea"
+  color: "C5DEF5"
+  description: "Feature ideas, proposals, brainstorming, and UX enhancements"
+
+- name: "type:plan"
+  color: "7057FF"
+  description: "Architectural plans, epics, roadmaps, and multi-slice initiatives"
+
+- name: "type:bug"
+  color: "D73A4A"
+  description: "Bugs, regressions, calculation errors, or system defects"
+
+- name: "type:task"
+  color: "0075CA"
+  description: "Concrete implementation tickets and tracer bullets"
+
+- name: "type:docs"
+  color: "0052CC"
+  description: "Documentation, ADRs, GLOSSARY, or operational guides"
+
+# Canonical Triage States (docs/agents/triage-labels.md)
+- name: "needs-triage"
+  color: "FBCA04"
+  description: "Maintainer needs to evaluate and categorize this issue"
+
+- name: "needs-info"
+  color: "D93F0B"
+  description: "Waiting on reporter or author for more information"
+
+- name: "ready-for-agent"
+  color: "0E8A16"
+  description: "Fully specified tracer bullet ready for autonomous agent implementation"
+
+- name: "ready-for-human"
+  color: "1D76DB"
+  description: "Requires human implementation (judgment calls, secrets, manual testing)"
+
+- name: "wontfix"
+  color: "FFFFFF"
+  description: "Will not be actioned or out of scope"
+
+# Priority Tiers
+- name: "priority:critical"
+  color: "B60205"
+  description: "Urgent blocker: breaks world sync, corrupted state, or service crash"
+
+- name: "priority:high"
+  color: "E99695"
+  description: "High impact: major feature regression or tactical inaccuracy"
+
+- name: "priority:normal"
+  color: "FEF2C0"
+  description: "Normal priority: standard enhancement or minor issue"
+
+- name: "priority:low"
+  color: "EEEEEE"
+  description: "Low priority: nice-to-have polishing or minor tweak"
+
+# Domain & Subsystem Areas
+- name: "area:map"
+  color: "BFDADC"
+  description: "World map rendering, WebGL engine, coordinate projections, MapLibre"
+
+- name: "area:intel"
+  color: "D4C5F9"
+  description: "Tactical overlays, ghost radar, siege radar, inactive farm finder"
+
+- name: "area:operations"
+  color: "F9D0C4"
+  description: "Route planner, Bézier troop transit, ETA math, sniper coordination"
+
+- name: "area:pins"
+  color: "C2E0C6"
+  description: "Tactical pinboard, target markers, alliance coordination"
+
+- name: "area:sync"
+  color: "FFA500"
+  description: "World data ingestion, Grepolis API scraping, cache pipelines"
+
+- name: "area:auth"
+  color: "F9C80E"
+  description: "Authentication, session management, roles, audit logging"
+
+- name: "area:ui"
+  color: "B3D4FC"
+  description: "Design system primitives, HUD controls, responsive layout, a11y"
+
+- name: "area:arch"
+  color: "5319E7"
+  description: "Core architecture, database schemas, performance, seam refactoring"
+
+# Wayfinder Roles (docs/agents/issue-tracker.md)
+- name: "wayfinder:map"
+  color: "006B75"
+  description: "Wayfinder master roadmap issue with sub-issues"
+
+- name: "wayfinder:research"
+  color: "5319E7"
+  description: "Wayfinder research investigation ticket"
+
+- name: "wayfinder:prototype"
+  color: "BFD4F2"
+  description: "Wayfinder throwaway prototype ticket"
+
+- name: "wayfinder:grilling"
+  color: "B60205"
+  description: "Wayfinder plan stress-testing / grilling ticket"
+
+- name: "wayfinder:task"
+  color: "1D76DB"
+  description: "Wayfinder execution ticket"
