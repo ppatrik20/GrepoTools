@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { ensureDatabaseSchema } from '@/lib/dbBootstrap';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
+    await ensureDatabaseSchema();
     const { searchParams } = new URL(request.url);
     const worldId = searchParams.get('world')?.toLowerCase()?.trim();
     const status = searchParams.get('status')?.toUpperCase()?.trim();
@@ -36,6 +38,6 @@ export async function GET(request) {
     });
   } catch (error) {
     console.error("GET /api/world/sync-logs error:", error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }

@@ -61,4 +61,8 @@ Following the initial modularization, automated hourly synchronization via Docke
    - **External Webhooks**: Added `WorldSyncPipeline.notifySyncFailure` supporting Discord, Slack, and generic webhooks via `SYNC_ALERT_WEBHOOK_URL`.
    - **UI Alerts**: Added high-visibility dismissible warning banner in `Navigation.js` with instant "Retry Sync" action when active world status is `FAILURE`.
    - **Admin World Diagnostics**: Added a diagnostic modal in `src/app/world/page.js` to inspect execution history, duration, and error traces.
+5. **Database Schema Self-Healing & Frontend Error Resilience**:
+   - **Zero-CLI Schema Bootstrapper**: Added `ensureDatabaseSchema` in `src/lib/dbBootstrap.js` executing idempotent DDL statements (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`, `CREATE TABLE IF NOT EXISTS ...`) via `prisma.$executeRawUnsafe`. Runs during container startup (`docker-entrypoint.sh` via `scripts/ensure-schema.js`), in `WorldSyncPipeline.executeSync`, and lazily memoized across API routes.
+   - **Direct SQL Migration**: Provided `scripts/init_sync_tables.sql` for manual PostgreSQL container execution.
+   - **Crash-Proof Client State**: Hardened `src/app/stats/page.js` against malformed or error API responses, preventing React runtime errors on undefined entity dictionaries and rendering resilient error cards.
 

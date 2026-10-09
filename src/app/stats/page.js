@@ -94,11 +94,19 @@ export default function ScoreboardDashboard() {
     setRefreshing(true);
     try {
       const [scoreRes] = await Promise.all([
-        fetch(`/api/world/scoreboard?world=${activeWorldId}`).then(r => r.json()),
+        fetch(`/api/world/scoreboard?world=${activeWorldId}`).then(async r => {
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.error || `HTTP ${r.status}`);
+          }
+          return r.json();
+        }),
         refreshPinnedBatch(pinnedPlayers.map(p => p.id), 'player'),
         refreshPinnedBatch(pinnedAlliances.map(a => a.id), 'alliance'),
       ]);
-      if (scoreRes) setData(scoreRes);
+      if (scoreRes && !scoreRes.error && scoreRes.alliances && scoreRes.players) {
+        setData(scoreRes);
+      }
     } catch (e) {
       console.error("Manual refresh error:", e);
     } finally {
@@ -132,13 +140,24 @@ export default function ScoreboardDashboard() {
     }
 
     fetch(`/api/world/scoreboard?world=${activeWorldId}`)
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        return res.json();
+      })
       .then(d => {
-        setData(d);
+        if (d && !d.error && d.alliances && d.players) {
+          setData(d);
+        } else {
+          setData(null);
+        }
         setLoading(false);
       })
       .catch(err => {
-        console.error(err);
+        console.error("Scoreboard fetch error:", err);
+        setData(null);
         setLoading(false);
       });
   }, [activeWorldId, refreshPinnedBatch]);
@@ -407,6 +426,13 @@ export default function ScoreboardDashboard() {
   };
 
   const renderSidebarList = (entities, metric, search, searchResults, isSearching, isAlliance = false) => {
+    if (!entities) {
+      return (
+        <div style={{ color: '#64748b', textAlign: 'center', padding: '1rem 0', fontSize: '0.875rem' }}>
+          No data available.
+        </div>
+      );
+    }
     let list = entities[metric] || [];
     list = list.map((item, i) => ({ ...item, _originalRank: i + 1 }));
     const pinned = isAlliance ? pinnedAlliances : pinnedPlayers;
@@ -660,7 +686,26 @@ export default function ScoreboardDashboard() {
     );
   }
 
-  if (!data) return <div style={{ color: 'white', padding: '2rem' }}>Error loading data.</div>;
+  if (!data || !data.alliances || !data.players) {
+    return (
+      <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, backgroundColor: '#0b101e', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', maxWidth: '420px', textAlign: 'center', padding: '24px' }}>
+          <Trophy size={48} color="#64748b" />
+          <h2 style={{ fontSize: '1.25rem', color: '#f1f5f9', margin: 0, fontWeight: 'bold' }}>Scoreboard intelligence unavailable</h2>
+          <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>
+            Unable to load tactical ranking and momentum data for {activeWorldId?.toUpperCase() || 'this world'}.
+          </p>
+          <button
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: '#3b82f6', color: 'white', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} /> Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, backgroundColor: '#0b101e', zIndex: 10, display: 'flex', overflow: 'hidden', fontFamily: 'sans-serif' }}>

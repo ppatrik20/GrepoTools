@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateGeoJSON } from '@/lib/geojson';
+import { ensureDatabaseSchema } from '@/lib/dbBootstrap';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export async function GET(request) {
   const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
 
   try {
+    await ensureDatabaseSchema();
     const world = await prisma.world.findUnique({ where: { id: worldId } });
     
     if (world && world.geoJsonCache && world.lastSync) {
@@ -42,6 +44,6 @@ export async function GET(request) {
     });
   } catch (error) {
     console.error("GeoJSON generation error:", error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }

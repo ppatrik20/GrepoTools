@@ -18,6 +18,7 @@ import {
 import { WorldCacheCompiler } from './WorldCacheCompiler.js';
 import { TownVerificationEngine } from '../auth/TownVerificationEngine.js';
 import { logAuditEvent, AUDIT_ACTIONS } from '../auth/audit.js';
+import { ensureDatabaseSchema } from '../dbBootstrap.js';
 
 const CREATE_BATCH_SIZE = 5000;
 const UPDATE_BATCH_SIZE = 50000;
@@ -251,6 +252,8 @@ export const WorldSyncPipeline = {
     const worldId = this.validateWorldId(worldIdInput);
 
     try {
+      await ensureDatabaseSchema(prismaClient);
+
       // 1. Ensure World entry exists in DB
       let world = await prismaClient.world.findUnique({ where: { id: worldId } });
       if (!world) {

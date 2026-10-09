@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAdminBearerAuth, requireAuth } from '@/lib/auth';
+import { ensureDatabaseSchema } from '@/lib/dbBootstrap';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    await ensureDatabaseSchema();
     const worlds = await prisma.world.findMany({
       orderBy: { createdAt: 'asc' },
       select: {
@@ -52,7 +54,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error("GET /api/worlds error:", error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
 

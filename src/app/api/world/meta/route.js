@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { PALETTE } from '@/lib/constants';
+import { ensureDatabaseSchema } from '@/lib/dbBootstrap';
 
 export const dynamic = 'force-dynamic';
 export async function GET(request) {
@@ -8,6 +9,7 @@ export async function GET(request) {
   const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
 
   try {
+    await ensureDatabaseSchema();
     const world = await prisma.world.findUnique({
       where: { id: worldId }
     });
@@ -66,6 +68,6 @@ export async function GET(request) {
 
   } catch (error) {
     console.error("Meta API Error:", error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
