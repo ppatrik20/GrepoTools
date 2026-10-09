@@ -1,10 +1,12 @@
-import { prisma } from '@/lib/prisma';
-import { unstable_cache } from 'next/cache';
-import { PALETTE } from '@/lib/constants';
-import islandDefinitions from '@/lib/map/island_definitions.json';
-import alignmentMetadata from '@/lib/map/alignment_metadata.json';
-import islandOutlines from '@/lib/map/island_outlines.json';
-import { pixelToLng, pixelToLat } from '@/lib/map/coordProjection';
+import { createRequire } from 'module';
+import { prisma } from './prisma.js';
+import { PALETTE } from './constants.js';
+import { pixelToLng, pixelToLat } from './map/coordProjection.js';
+
+const require = createRequire(import.meta.url);
+const islandDefinitions = require('./map/island_definitions.json');
+const alignmentMetadata = require('./map/alignment_metadata.json');
+const islandOutlines = require('./map/island_outlines.json');
 
 // In-game directional and colonization offsets extracted from Grepolis client
 const TOWN_DIR_OFFSETS = {
@@ -289,10 +291,4 @@ export async function generateGeoJSON(worldId = 'hu119') {
   };
 }
 
-export const getCachedGeoJSON = unstable_cache(
-  async (worldId = 'hu119') => {
-    return await generateGeoJSON(worldId);
-  },
-  ['world-geojson-by-world'],
-  { tags: ['world-geojson'] }
-);
+

@@ -16,6 +16,9 @@ model World {
   worldType       String    @default("siege") // "siege" or "revolt"
   isActive        Boolean   @default(true)
   lastSync        DateTime?
+  lastSyncStatus  String?   // "SUCCESS" | "FAILURE"
+  lastSyncError   String?   @db.Text
+  lastSyncDurationMs Int?
   geoJsonCache    String?   @db.Text
   scoreboardCache String?   @db.Text
   createdAt       DateTime  @default(now())
@@ -34,6 +37,7 @@ model World {
   teams           Team[]
   teamMemberships TeamMember[]
   invites         Invite[]
+  syncLogs        SyncLog[]
 
   @@index([isActive])
 }
@@ -291,6 +295,23 @@ model SyncMetadata {
   lastSync        DateTime @default(now())
   geoJsonCache    String?  @db.Text
   scoreboardCache String?  @db.Text
+}
+
+model SyncLog {
+  id           String   @id @default(uuid())
+  worldId      String
+  status       String   // "SUCCESS" | "FAILURE" | "SKIPPED"
+  trigger      String   @default("CRON") // "CRON" | "MANUAL" | "CLI"
+  durationMs   Int      @default(0)
+  errorMessage String?  @db.Text
+  stats        Json?
+  createdAt    DateTime @default(now())
+
+  world        World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@index([worldId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
 }
 
 model Building {

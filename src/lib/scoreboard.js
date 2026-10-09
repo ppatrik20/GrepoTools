@@ -1,5 +1,5 @@
-import { prisma } from '@/lib/prisma';
-import { getBaselineTime } from '@/lib/constants';
+import { prisma } from './prisma.js';
+import { getBaselineTime } from './constants.js';
 
 export async function generateScoreboardData(worldId = 'hu119') {
   const world = await prisma.world.findUnique({ where: { id: worldId } });

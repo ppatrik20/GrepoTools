@@ -34,3 +34,31 @@ Previously, world synchronization suffered from several architectural deficienci
 
 ### Negative / Trade-offs
 - Intermediate in-memory representations are structured between parsing and persistence stages, requiring explicit type contracts across modules.
+
+---
+
+## Addendum (2026-10): Standalone Node Portability, Robust Logging & Failure Notification Seams
+
+### Context
+Following the initial modularization, automated hourly synchronization via Docker/CLI (`docker exec grepotools-app node scripts/sync.js`) exposed three critical runtime failure modes:
+1. **ESM Import Path Incompatibility in Standalone Node**: In Next.js Turbopack runtime, path aliases (`@/lib/...`) and extensionless imports are resolved automatically, but standalone Node.js ESM (`node scripts/sync.js`) threw `ERR_MODULE_NOT_FOUND`. Additionally, importing Next.js server-only packages (`next/cache`'s `unstable_cache`) in shared libraries crashed standalone processes.
+2. **Feed Tokenization URIError**: Remote InnoGames data feeds contain player and town names with literal percent symbols (e.g. `100% DEF`) and URL-encoded commas (`%2C`). Pre-splitting whole-line `decodeURIComponent` caused unhandled `URIError: URI malformed` and column misalignment.
+3. **Silent Failure & Lack of Observability**: When sync failed, only `console.error` was outputted. `World.lastSync` remained frozen at its last successful timestamp with no indication in the database or UI whether sync was failing or if the cron daemon was running, leading to the "synced 800+ minutes ago" blind spot.
+
+### Decision
+1. **Universal Node ESM Portability**:
+   - All modules shared between Next.js and standalone scripts (`WorldSyncPipeline.js`, `WorldCacheCompiler.js`, `TownVerificationEngine.js`, `geojson.js`, `scoreboard.js`) must use relative imports with explicit `.js` extensions.
+   - JSON assets in shared modules are loaded universally using `createRequire(import.meta.url)` to satisfy Node 22+ ESM requirements.
+   - Scripts load local environment files automatically via `process.loadEnvFile?.()`.
+2. **Defensive CSV Parsing**:
+   - `fetchAndDecompress` splits raw feed lines by `,` first and decodes each cell individually via `safeDecodeField`, falling back to the raw string if `decodeURIComponent` encounters malformed escape sequences.
+3. **Persistent Sync Logging & Observability Seams**:
+   - Introduced `SyncLog` model in Prisma schema (`worldId`, `status`, `trigger`, `durationMs`, `errorMessage`, `stats`, `createdAt`) with compound indexes.
+   - Updated `World` model with `lastSyncStatus` (`SUCCESS` | `FAILURE`), `lastSyncError`, and `lastSyncDurationMs`.
+   - Pipeline persists failure status and audit logs atomically in `catch` blocks before exiting.
+   - Exposed `/api/world/sync-logs` and updated `/api/worlds` and `/api/world/status`.
+4. **Multi-Channel Alerting & UI Diagnostics**:
+   - **External Webhooks**: Added `WorldSyncPipeline.notifySyncFailure` supporting Discord, Slack, and generic webhooks via `SYNC_ALERT_WEBHOOK_URL`.
+   - **UI Alerts**: Added high-visibility dismissible warning banner in `Navigation.js` with instant "Retry Sync" action when active world status is `FAILURE`.
+   - **Admin World Diagnostics**: Added a diagnostic modal in `src/app/world/page.js` to inspect execution history, duration, and error traces.
+

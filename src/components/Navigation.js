@@ -36,11 +36,17 @@ export default function Navigation() {
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState('');
+  const [syncMessage, setSyncMessage] = useState(null);
+  const [syncBannerDismissed, setSyncBannerDismissed] = useState(false);
   const [now, setNow] = useState(new Date());
 
   const worldDropdownRef = useRef(null);
   const searchAbortRef = useRef(null);
+
+  // Reset alert banner when switching worlds
+  useEffect(() => {
+    setSyncBannerDismissed(false);
+  }, [activeWorldId]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -103,24 +109,32 @@ export default function Navigation() {
   const handleTriggerSync = async () => {
     if (syncing) return;
     setSyncing(true);
-    setSyncMessage('');
+    setSyncMessage(null);
     try {
       const res = await fetch(`/api/world/sync?world=${activeWorldId}&force=true`);
       const data = await res.json();
       if (data.success) {
-        setSyncMessage(`World ${activeWorldId} synced!`);
+        setSyncMessage({ type: 'success', text: `World ${activeWorldId} synced!` });
         refreshWorlds();
         refreshActivePlayer();
       } else {
-        setSyncMessage(data.error || 'Sync failed');
+        setSyncMessage({ type: 'error', text: data.error || 'Sync failed' });
+        refreshWorlds();
       }
     } catch (e) {
-      setSyncMessage(e.message);
+      setSyncMessage({ type: 'error', text: e.message });
+      refreshWorlds();
     } finally {
       setSyncing(false);
-      setTimeout(() => setSyncMessage(''), 4000);
+      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
+
+  const minutesAgo = activeWorld?.lastSync 
+    ? Math.max(0, Math.floor((now - new Date(activeWorld.lastSync)) / 60000))
+    : null;
+  const isSyncFailed = activeWorld?.lastSyncStatus === 'FAILURE';
+  const isSyncStale = minutesAgo !== null && minutesAgo > 120;
 
   const isGlobalAdmin = user?.globalRole === 'GLOBAL_ADMIN';
   const teams = user?.teams || [];
@@ -146,6 +160,43 @@ export default function Navigation() {
 
   return (
     <>
+      {/* High-Visibility Sync Failure Alert Banner */}
+      {isSyncFailed && !syncBannerDismissed && (
+        <div className="bg-rose-950/90 border-b border-rose-500/50 text-rose-200 text-xs px-4 py-2.5 flex items-center justify-between backdrop-blur-md transition-all shadow-lg">
+          <div className="flex items-center gap-2 max-w-4xl truncate">
+            <AlertCircle size={15} className="text-rose-400 shrink-0" />
+            <span className="font-bold text-rose-300">
+              World Sync Alert [{activeWorld?.name || activeWorldId?.toUpperCase()}]:
+            </span>
+            <span className="truncate text-rose-200/90 font-mono text-[11px]">
+              {activeWorld?.lastSyncError || 'Last synchronization attempt failed.'}
+            </span>
+            {minutesAgo !== null && (
+              <span className="text-rose-400/80 font-mono text-[10px] shrink-0">
+                ({minutesAgo}m ago)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0 ml-4">
+            <button
+              onClick={handleTriggerSync}
+              disabled={syncing}
+              className="px-2.5 py-1 bg-rose-600/40 hover:bg-rose-600/60 border border-rose-500/60 rounded-lg text-rose-100 font-semibold text-[11px] transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <RefreshCw size={11} className={syncing ? "animate-spin" : ""} />
+              {syncing ? 'Retrying...' : 'Retry Sync'}
+            </button>
+            <button
+              onClick={() => setSyncBannerDismissed(true)}
+              className="text-rose-400 hover:text-rose-200 transition-colors p-1 cursor-pointer"
+              title="Dismiss alert"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <nav className="navbar">
         <div className="container flex justify-between items-center w-full" style={{ padding: 0 }}>
           
@@ -239,20 +290,45 @@ export default function Navigation() {
               type="button"
               onClick={handleTriggerSync}
               disabled={syncing}
-              className="hidden xl:flex items-center gap-1.5 bg-slate-900/50 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-400 hover:text-slate-200 transition-all cursor-pointer"
-              title="Click to force world sync"
+              className={`hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer ${
+                isSyncFailed
+                  ? 'bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/50 text-rose-300 shadow-sm shadow-rose-900/30'
+                  : isSyncStale
+                  ? 'bg-amber-950/30 hover:bg-amber-900/40 border border-amber-500/40 text-amber-300'
+                  : 'bg-slate-900/50 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+              title={
+                isSyncFailed
+                  ? `Sync failed: ${activeWorld?.lastSyncError || 'Unknown error'}. Click to force retry.`
+                  : isSyncStale
+                  ? `Data is delayed (${minutesAgo}m ago). Click to force sync.`
+                  : 'Click to force world sync'
+              }
             >
-              <RefreshCw size={12} className={syncing ? "animate-spin text-blue-400" : "text-slate-400"} />
+              {isSyncFailed ? (
+                <AlertCircle size={12} className={syncing ? "animate-spin text-rose-400" : "text-rose-400 shrink-0"} />
+              ) : isSyncStale ? (
+                <AlertCircle size={12} className={syncing ? "animate-spin text-amber-400" : "text-amber-400 shrink-0"} />
+              ) : (
+                <RefreshCw size={12} className={syncing ? "animate-spin text-blue-400" : "text-slate-400 shrink-0"} />
+              )}
               <span>
-                {activeWorld?.lastSync 
-                  ? `Synced ${Math.max(0, Math.floor((now - new Date(activeWorld.lastSync)) / 60000))}m ago` 
+                {syncing
+                  ? 'Syncing...'
+                  : isSyncFailed
+                  ? `Sync Failed (${minutesAgo !== null ? `${minutesAgo}m ago` : 'error'})`
+                  : activeWorld?.lastSync 
+                  ? `Synced ${minutesAgo}m ago` 
                   : 'Not synced'}
               </span>
             </button>
 
             {syncMessage && (
-              <span className="text-xs text-blue-400 font-mono animate-fade-in hidden lg:inline">
-                {syncMessage}
+              <span className={`text-xs font-mono animate-fade-in hidden lg:inline-flex items-center gap-1.5 ${
+                syncMessage.type === 'error' ? 'text-rose-400 font-semibold' : 'text-blue-400'
+              }`}>
+                {syncMessage.type === 'error' && <AlertCircle size={11} className="shrink-0 text-rose-400" />}
+                {syncMessage.text}
               </span>
             )}
           </div>
@@ -382,14 +458,20 @@ export default function Navigation() {
 
             <div className="border-t border-slate-800 my-2 pt-2 flex flex-col gap-2">
               <Button
-                variant="secondary"
+                variant={isSyncFailed ? "danger" : isSyncStale ? "warning" : "secondary"}
                 size="sm"
                 onClick={handleTriggerSync}
                 isLoading={syncing}
-                icon={RefreshCw}
+                icon={isSyncFailed || isSyncStale ? AlertCircle : RefreshCw}
                 className="w-full justify-start"
               >
-                Sync Current World
+                {syncing
+                  ? 'Syncing World...'
+                  : isSyncFailed
+                  ? `Sync Failed (${minutesAgo !== null ? `${minutesAgo}m ago` : 'error'})`
+                  : activeWorld?.lastSync
+                  ? `Sync World (Synced ${minutesAgo}m ago)`
+                  : 'Sync Current World'}
               </Button>
 
               {user ? (

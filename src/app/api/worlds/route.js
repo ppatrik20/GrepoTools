@@ -17,6 +17,9 @@ export async function GET() {
         worldType: true,
         isActive: true,
         lastSync: true,
+        lastSyncStatus: true,
+        lastSyncError: true,
+        lastSyncDurationMs: true,
         createdAt: true,
         _count: {
           select: {
@@ -40,6 +43,9 @@ export async function GET() {
         worldType: w.worldType,
         isActive: w.isActive,
         lastSync: w.lastSync,
+        lastSyncStatus: w.lastSyncStatus,
+        lastSyncError: w.lastSyncError,
+        lastSyncDurationMs: w.lastSyncDurationMs,
         counts: w._count,
         createdAt: w.createdAt
       }))

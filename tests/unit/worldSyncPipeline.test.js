@@ -13,7 +13,7 @@ import {
   computeTownDeltas,
   computeIslandDeltas
 } from '../../src/lib/world/WorldDeltaEngine.js';
-import { WorldSyncPipeline } from '../../src/lib/world/WorldSyncPipeline.js';
+import { WorldSyncPipeline, safeDecodeField } from '../../src/lib/world/WorldSyncPipeline.js';
 import { WorldOperationsAdapter } from '../../src/lib/world/WorldOperationsAdapter.js';
 
 describe('GrepolisDataParser: Pure Data Feed Parser', () => {
@@ -213,6 +213,122 @@ describe('WorldSyncPipeline: Orchestration and Freshness Engine', () => {
     const forced = await WorldSyncPipeline.checkFreshness(worldRecent, 'hu119', true);
     expect(forced.isFresh).toBe(false);
   });
+
+  test('safeDecodeField handles valid sequences, plus signs, and malformed URI tokens', () => {
+    expect(safeDecodeField('Sparta%20Town')).toBe('Sparta Town');
+    expect(safeDecodeField('Sparta+Town')).toBe('Sparta Town');
+    expect(safeDecodeField('100%25%20DEF')).toBe('100% DEF');
+    // Malformed URI sequences with raw '%' should recover safely
+    expect(safeDecodeField('100% DEF')).toBe('100% DEF');
+    expect(safeDecodeField('Test%99%ZZ')).toBe('Test%99%ZZ');
+    // Nullable/empty safe handling
+    expect(safeDecodeField('')).toBe('');
+    expect(safeDecodeField(null)).toBe('');
+    expect(safeDecodeField(undefined)).toBe('');
+  });
+
+  test('notifySyncFailure dispatches webhook payload when SYNC_ALERT_WEBHOOK_URL is configured', async () => {
+    const originalWebhook = process.env.SYNC_ALERT_WEBHOOK_URL;
+    const originalFetch = globalThis.fetch;
+    try {
+      // 1. Without webhook configured - noop
+      delete process.env.SYNC_ALERT_WEBHOOK_URL;
+      const noopFetch = vi.fn();
+      globalThis.fetch = noopFetch;
+      await WorldSyncPipeline.notifySyncFailure({
+        worldId: 'hu119',
+        trigger: 'CLI',
+        durationMs: 120,
+        error: new Error('Test err')
+      });
+      expect(noopFetch).not.toHaveBeenCalled();
+
+      // 2. With webhook configured - dispatches payload
+      process.env.SYNC_ALERT_WEBHOOK_URL = 'https://discord.com/api/webhooks/test';
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+      globalThis.fetch = mockFetch;
+
+      await WorldSyncPipeline.notifySyncFailure({
+        worldId: 'hu119',
+        trigger: 'CLI',
+        durationMs: 500,
+        error: new Error('Remote server 503')
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://discord.com/api/webhooks/test',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: expect.stringContaining('WORLD_SYNC_FAILURE')
+        })
+      );
+
+      // 3. Network error handling - does not throw
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network offline'));
+      await expect(
+        WorldSyncPipeline.notifySyncFailure({
+          worldId: 'hu119',
+          trigger: 'CRON',
+          durationMs: 10,
+          error: new Error('Network test')
+        })
+      ).resolves.not.toThrow();
+    } finally {
+      if (originalWebhook !== undefined) {
+        process.env.SYNC_ALERT_WEBHOOK_URL = originalWebhook;
+      } else {
+        delete process.env.SYNC_ALERT_WEBHOOK_URL;
+      }
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('executeSync records failure state in World and SyncLog models upon pipeline exception', async () => {
+    const mockPrisma = {
+      world: {
+        findUnique: vi.fn().mockRejectedValue(new Error('Database connectivity lost')),
+        update: vi.fn().mockResolvedValue({ id: 'hu119' })
+      },
+      syncLog: {
+        create: vi.fn().mockResolvedValue({ id: 101 })
+      },
+      auditLog: {
+        create: vi.fn().mockResolvedValue({ id: 201 })
+      }
+    };
+
+    const result = await WorldSyncPipeline.executeSync(
+      'hu119',
+      { force: true, trigger: 'CLI' },
+      { prismaClient: mockPrisma }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.worldId).toBe('hu119');
+    expect(result.error).toBe('Database connectivity lost');
+
+    // World failure status recorded
+    expect(mockPrisma.world.update).toHaveBeenCalledWith({
+      where: { id: 'hu119' },
+      data: {
+        lastSyncStatus: 'FAILURE',
+        lastSyncError: 'Database connectivity lost',
+        lastSyncDurationMs: expect.any(Number)
+      }
+    });
+
+    // Diagnostic syncLog created
+    expect(mockPrisma.syncLog.create).toHaveBeenCalledWith({
+      data: {
+        worldId: 'hu119',
+        status: 'FAILURE',
+        trigger: 'CLI',
+        durationMs: expect.any(Number),
+        errorMessage: 'Database connectivity lost'
+      }
+    });
+  });
 });
 
 describe('WorldOperationsAdapter: Unified Client Seam', () => {
@@ -294,5 +410,34 @@ describe('WorldOperationsAdapter: Unified Client Seam', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: 'secret123' })
     });
+  });
+
+  test('fetchSyncLogs queries /api/world/sync-logs with formatted parameters', async () => {
+    const mockLogs = [{ id: 1, status: 'SUCCESS' }];
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, logs: mockLogs })
+    });
+
+    const logs = await WorldOperationsAdapter.fetchSyncLogs({
+      worldId: 'HU119',
+      status: 'success',
+      limit: 25,
+      fetchImpl: mockFetch
+    });
+
+    expect(logs).toEqual(mockLogs);
+    expect(mockFetch).toHaveBeenCalledWith('/api/world/sync-logs?world=hu119&status=SUCCESS&limit=25');
+  });
+
+  test('fetchSyncLogs throws descriptive error on failure', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ success: false, error: 'Database unreachable' })
+    });
+
+    await expect(
+      WorldOperationsAdapter.fetchSyncLogs({ worldId: 'hu119', fetchImpl: mockFetch })
+    ).rejects.toThrow('Database unreachable');
   });
 });

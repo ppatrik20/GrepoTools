@@ -1,7 +1,7 @@
 import zlib from 'zlib';
-import { prisma as defaultPrisma } from '@/lib/prisma';
-import { generateGeoJSON } from '@/lib/geojson';
-import { generateScoreboardData } from '@/lib/scoreboard';
+import { prisma as defaultPrisma } from '../prisma.js';
+import { generateGeoJSON } from '../geojson.js';
+import { generateScoreboardData } from '../scoreboard.js';
 
 /**
  * WorldCacheCompiler: Unified Compilation & Persistence Seam for World Caches

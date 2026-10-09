@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { 
   Globe, Plus, RefreshCw, Trash2, CheckCircle2, AlertTriangle, 
-  Settings, Database, Server, Clock, Edit3, Lock, Unlock, X, ShieldCheck, Users
+  Settings, Database, Server, Clock, Edit3, Lock, Unlock, X, ShieldCheck, Users, FileText
 } from 'lucide-react';
 import { WorldOperationsAdapter } from '@/lib/world/WorldOperationsAdapter';
 
@@ -20,6 +20,25 @@ export default function AdminWorldCenter() {
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Sync Logs modal state
+  const [syncLogsModalWorld, setSyncLogsModalWorld] = useState(null);
+  const [syncLogs, setSyncLogs] = useState([]);
+  const [loadingSyncLogs, setLoadingSyncLogs] = useState(false);
+
+  const openSyncLogs = async (worldId) => {
+    setSyncLogsModalWorld(worldId);
+    setLoadingSyncLogs(true);
+    setSyncLogs([]);
+    try {
+      const logs = await WorldOperationsAdapter.fetchSyncLogs({ worldId, limit: 30 });
+      setSyncLogs(logs);
+    } catch (err) {
+      setError(`Failed to fetch logs for ${worldId}: ${err.message}`);
+    } finally {
+      setLoadingSyncLogs(false);
+    }
+  };
 
   // Add World form states
   const [formOpen, setFormOpen] = useState(false);
@@ -504,6 +523,13 @@ export default function AdminWorldCenter() {
 
                     <div className="flex items-center gap-1.5">
                       <button
+                        onClick={() => openSyncLogs(w.id)}
+                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                        title="View sync history & diagnostic logs"
+                      >
+                        <FileText size={15} />
+                      </button>
+                      <button
                         onClick={() => openEditModal(w)}
                         className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                         title="Edit world settings"
@@ -527,6 +553,17 @@ export default function AdminWorldCenter() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Failure Alert Banner */}
+                  {w.lastSyncStatus === 'FAILURE' && (
+                    <div className="mb-3 p-2.5 bg-rose-950/60 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-start gap-2 animate-fade-in">
+                      <AlertTriangle size={14} className="text-rose-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-rose-200">Last Sync Failed</div>
+                        <div className="text-[11px] text-rose-300/80 font-mono truncate">{w.lastSyncError || 'Unknown error'}</div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* World Metrics */}
                   <div className="grid grid-cols-4 gap-2 my-4 bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-center">
@@ -555,9 +592,15 @@ export default function AdminWorldCenter() {
                     <Clock size={13} />
                     <span>
                       {w.lastSync 
-                        ? `Last sync: ${new Date(w.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` 
+                        ? `Last sync: ${new Date(w.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${w.lastSyncDurationMs ? ` (${(w.lastSyncDurationMs / 1000).toFixed(1)}s)` : ''}` 
                         : 'Never synced'}
                     </span>
+                    {w.lastSyncStatus === 'SUCCESS' && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block ml-1" title="Last sync succeeded" />
+                    )}
+                    {w.lastSyncStatus === 'FAILURE' && (
+                      <span className="w-2 h-2 rounded-full bg-rose-400 inline-block ml-1" title="Last sync failed" />
+                    )}
                   </div>
 
                   {!isCurrentActive ? (
@@ -794,6 +837,108 @@ export default function AdminWorldCenter() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Logs Modal */}
+      {syncLogsModalWorld && (
+        <div 
+          className="grepo-modal-backdrop animate-fade-in"
+          onClick={(e) => { if (e.target === e.currentTarget) setSyncLogsModalWorld(null); }}
+        >
+          <div 
+            className="glass-panel w-full max-w-2xl p-6 bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl relative my-auto max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileText size={18} className="text-primary" /> Sync History & Diagnostics: {syncLogsModalWorld.toUpperCase()}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Recent synchronization runs, execution duration, and error diagnostics
+                </p>
+              </div>
+              <button
+                onClick={() => setSyncLogsModalWorld(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+              {loadingSyncLogs ? (
+                <div className="text-center py-10 text-slate-400 text-sm animate-pulse flex items-center justify-center gap-2">
+                  <RefreshCw size={16} className="animate-spin text-primary" /> Loading sync diagnostics...
+                </div>
+              ) : syncLogs.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-sm">
+                  No synchronization logs recorded yet for world {syncLogsModalWorld.toUpperCase()}.
+                </div>
+              ) : (
+                syncLogs.map((log) => {
+                  const isSuccess = log.status === 'SUCCESS';
+                  return (
+                    <div 
+                      key={log.id} 
+                      className={`p-3 rounded-xl border text-xs flex flex-col gap-1.5 ${
+                        isSuccess 
+                          ? 'bg-slate-950/60 border-slate-800 text-slate-300' 
+                          : 'bg-rose-950/30 border-rose-500/40 text-rose-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase font-mono ${
+                            isSuccess 
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}>
+                            {log.status}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-400">
+                            Trigger: {log.trigger || 'CRON'}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-400">
+                            • {log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : '0s'}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[11px] text-slate-500">
+                          {new Date(log.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+
+                      {log.errorMessage && (
+                        <div className="mt-1 p-2 bg-black/40 rounded-lg text-rose-300 font-mono text-[11px] whitespace-pre-wrap break-all border border-rose-900/50">
+                          {log.errorMessage}
+                        </div>
+                      )}
+
+                      {log.stats && (
+                        <div className="text-[11px] text-slate-400 flex flex-wrap gap-3 font-mono mt-0.5">
+                          <span>Players: +{log.stats.players || 0}</span>
+                          <span>Towns: +{log.stats.towns || 0}</span>
+                          <span>Alliances: +{log.stats.alliances || 0}</span>
+                          <span>Conquests: +{log.stats.conquers || 0}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="border-t border-slate-800 pt-3 mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSyncLogsModalWorld(null)}
+                className="btn bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-4 py-1.5 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

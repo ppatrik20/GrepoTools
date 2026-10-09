@@ -11,6 +11,14 @@
  */
 
 async function main() {
+  if (typeof process.loadEnvFile === 'function') {
+    try {
+      process.loadEnvFile();
+    } catch {
+      // .env already loaded or unavailable
+    }
+  }
+
   const { syncWorld, syncAllActiveWorlds, prisma } = await import('../src/lib/syncEngine.js');
 
   const args = process.argv.slice(2);
@@ -38,7 +46,7 @@ async function main() {
   try {
     if (targetWorld) {
       console.log(`🎯 Syncing specified world: ${targetWorld} (force: ${force})`);
-      const res = await syncWorld(targetWorld, { force, skipCacheBuild: false });
+      const res = await syncWorld(targetWorld, { force, skipCacheBuild: false, trigger: 'CLI' });
       await prisma.$disconnect();
       if (!res.success) {
         console.error(`[CLI Sync] Failed to sync ${targetWorld}:`, res.error);
@@ -49,7 +57,7 @@ async function main() {
     }
 
     // Sync all active worlds
-    const res = await syncAllActiveWorlds({ force, skipCacheBuild: false });
+    const res = await syncAllActiveWorlds({ force, skipCacheBuild: false, trigger: 'CLI' });
     await prisma.$disconnect();
 
     if (!res.success) {

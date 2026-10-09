@@ -1,5 +1,5 @@
-import { prisma as defaultPrisma } from '@/lib/prisma';
-import { logAuditEvent, AUDIT_ACTIONS } from './audit';
+import { prisma as defaultPrisma } from '../prisma.js';
+import { logAuditEvent, AUDIT_ACTIONS } from './audit.js';
 
 /**
  * TownVerificationEngine: Domain Seam for Operative Town Rename Identity Verification

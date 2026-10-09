@@ -182,5 +182,29 @@ export const WorldOperationsAdapter = {
       throw new Error(data.error || 'Invalid passcode');
     }
     return data;
+  },
+
+  /**
+   * Fetches recent synchronization logs and diagnostics.
+   * 
+   * @param {object} [options]
+   * @param {string} [options.worldId]
+   * @param {string} [options.status]
+   * @param {number} [options.limit=50]
+   * @param {Function} [options.fetchImpl=fetch]
+   * @returns {Promise<object[]>} Array of sync log records
+   */
+  async fetchSyncLogs({ worldId, status, limit = 50, fetchImpl = fetch } = {}) {
+    const params = new URLSearchParams();
+    if (worldId) params.set('world', worldId.toLowerCase().trim());
+    if (status) params.set('status', status.toUpperCase().trim());
+    if (limit) params.set('limit', String(limit));
+
+    const res = await fetchImpl(`/api/world/sync-logs?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to fetch sync logs');
+    }
+    return data.logs || [];
   }
 };

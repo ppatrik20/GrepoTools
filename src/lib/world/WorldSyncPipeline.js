@@ -1,6 +1,6 @@
 import https from 'https';
 import zlib from 'zlib';
-import { prisma as defaultPrisma } from '@/lib/prisma';
+import { prisma as defaultPrisma } from '../prisma.js';
 import {
   parseKillPoints,
   parseAlliances,
@@ -8,15 +8,16 @@ import {
   parseTowns,
   parseIslands,
   parseConquests
-} from './GrepolisDataParser';
+} from './GrepolisDataParser.js';
 import {
   computeAllianceDeltas,
   computePlayerDeltas,
   computeTownDeltas,
   computeIslandDeltas
-} from './WorldDeltaEngine';
-import { WorldCacheCompiler } from './WorldCacheCompiler';
-import { TownVerificationEngine } from '@/lib/auth/TownVerificationEngine';
+} from './WorldDeltaEngine.js';
+import { WorldCacheCompiler } from './WorldCacheCompiler.js';
+import { TownVerificationEngine } from '../auth/TownVerificationEngine.js';
+import { logAuditEvent, AUDIT_ACTIONS } from '../auth/audit.js';
 
 const CREATE_BATCH_SIZE = 5000;
 const UPDATE_BATCH_SIZE = 50000;
@@ -46,13 +47,30 @@ function chunkArray(arr, size) {
 }
 
 /**
+ * Safely decodes URL encoded string fields with fallback on malformed URI sequences.
+ */
+export function safeDecodeField(str) {
+  if (!str) return '';
+  try {
+    return decodeURIComponent(str.replace(/\+/g, ' '));
+  } catch {
+    return str.replace(/\+/g, ' ');
+  }
+}
+
+/**
  * Fetches and decompresses a Grepolis gzip data file from the remote game server.
  */
 export async function fetchAndDecompress(server, filename) {
   return new Promise((resolve, reject) => {
     const url = `https://${server}.grepolis.com/data/${filename}`;
 
-    https.get(url, (res) => {
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'GrepoTools-Sync/1.0 (+https://github.com/perfi20/GrepoTools)'
+      },
+      timeout: 30000
+    }, (res) => {
       if (res.statusCode !== 200) {
         if (res.statusCode === 404) return resolve([]);
         return reject(new Error(`Failed to fetch ${url}: ${res.statusCode}`));
@@ -67,12 +85,22 @@ export async function fetchAndDecompress(server, filename) {
       });
 
       gunzip.on('end', () => {
-        const lines = data.split('\n').filter(l => l.trim().length > 0);
-        resolve(lines.map(line => decodeURIComponent(line.replace(/\+/g, ' ')).split(',')));
+        try {
+          const lines = data.split('\n').filter(l => l.trim().length > 0);
+          resolve(lines.map(line => line.split(',').map(safeDecodeField)));
+        } catch (err) {
+          reject(err);
+        }
       });
 
       gunzip.on('error', reject);
-    }).on('error', reject);
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error(`Timeout fetching ${url}`));
+    });
+
+    req.on('error', reject);
   });
 }
 
@@ -162,19 +190,63 @@ export const WorldSyncPipeline = {
   },
 
   /**
+   * Dispatches failure notifications to external webhooks (e.g., Discord/Slack/custom) if configured.
+   */
+  async notifySyncFailure({ worldId, trigger, durationMs, error }) {
+    const webhookUrl = process.env.SYNC_ALERT_WEBHOOK_URL;
+    if (!webhookUrl) return;
+
+    try {
+      const payload = {
+        content: `🚨 **[GrepoTools Alert] World Sync Failed**`,
+        embeds: [
+          {
+            title: `World Sync Failure: ${worldId.toUpperCase()}`,
+            color: 0xef4444,
+            fields: [
+              { name: 'World', value: worldId, inline: true },
+              { name: 'Trigger', value: trigger || 'CRON', inline: true },
+              { name: 'Duration', value: `${durationMs || 0}ms`, inline: true },
+              { name: 'Error', value: String(error?.message || error || 'Unknown error').slice(0, 1000) },
+              { name: 'Timestamp', value: new Date().toISOString() }
+            ]
+          }
+        ],
+        event: 'WORLD_SYNC_FAILURE',
+        worldId,
+        trigger: trigger || 'CRON',
+        durationMs: durationMs || 0,
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString()
+      };
+
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000)
+      });
+    } catch (notifyErr) {
+      console.warn(`[WorldSyncPipeline] Failed to dispatch failure webhook notification:`, notifyErr.message);
+    }
+  },
+
+  /**
    * Executes full synchronization for a world through all pipeline stages.
    * 
    * @param {string} worldIdInput
    * @param {object} [options]
    * @param {boolean} [options.force=false]
    * @param {boolean} [options.skipCacheBuild=false]
+   * @param {string} [options.trigger='CRON'] 'CRON' | 'MANUAL' | 'CLI'
    * @param {object} [dependencies]
    * @param {object} [dependencies.prismaClient=defaultPrisma]
    * @returns {Promise<object>}
    */
   async executeSync(worldIdInput, options = {}, dependencies = {}) {
-    const { force = false, skipCacheBuild = false } = options;
+    const { force = false, skipCacheBuild = false, trigger = 'CRON' } = options;
     const prismaClient = dependencies.prismaClient || defaultPrisma;
+    const startTime = Date.now();
 
     const worldId = this.validateWorldId(worldIdInput);
 
@@ -458,38 +530,138 @@ export const WorldSyncPipeline = {
         }
       }
 
-      // Update world lastSync
+      const durationMs = Date.now() - startTime;
+      const statsPayload = {
+        alliances: allianceDeltas.toCreate.length,
+        players: playerDeltas.toCreate.length,
+        towns: townDeltas.toCreate.length,
+        islands: islandDeltas.toCreate.length,
+        deltas: {
+          alliances: allianceDeltas.historyDeltas.length,
+          players: playerDeltas.historyDeltas.length,
+          towns: townDeltas.historyDeltas.length
+        },
+        conquers: newConquers.length
+      };
+
+      // Update world lastSync and status
       await prismaClient.world.update({
         where: { id: worldId },
         data: {
           lastSync: syncTime,
+          lastSyncStatus: 'SUCCESS',
+          lastSyncError: null,
+          lastSyncDurationMs: durationMs,
           ...(scoreboardGzip ? { scoreboardCache: scoreboardGzip } : {}),
           ...(geoJsonGzip ? { geoJsonCache: geoJsonGzip } : {})
         }
       });
 
-      console.log(`[WorldSyncPipeline] World ${worldId} sync complete! (+${playerDeltas.toCreate.length} new players, +${townDeltas.toCreate.length} new towns)`);
+      // Record detailed SyncLog entry
+      try {
+        await prismaClient.syncLog.create({
+          data: {
+            worldId,
+            status: 'SUCCESS',
+            trigger,
+            durationMs,
+            errorMessage: null,
+            stats: statsPayload
+          }
+        });
+      } catch (logErr) {
+        console.warn(`[WorldSyncPipeline] Warning: Failed to record sync log:`, logErr.message);
+      }
+
+      // Record system AuditLog entry
+      try {
+        await logAuditEvent({
+          action: AUDIT_ACTIONS.WORLD_SYNC_TRIGGERED,
+          targetResource: `world:${worldId}`,
+          status: 'SUCCESS',
+          prismaClient,
+          details: {
+            worldId,
+            trigger,
+            durationMs,
+            stats: statsPayload
+          }
+        });
+      } catch (auditErr) {
+        console.warn(`[WorldSyncPipeline] Warning: Failed to record audit log:`, auditErr.message);
+      }
+
+      console.log(`[WorldSyncPipeline] World ${worldId} sync complete in ${durationMs}ms! (+${playerDeltas.toCreate.length} new players, +${townDeltas.toCreate.length} new towns)`);
 
       return {
         success: true,
         worldId,
         lastSync: syncTime,
-        stats: {
-          alliances: allianceDeltas.toCreate.length,
-          players: playerDeltas.toCreate.length,
-          towns: townDeltas.toCreate.length,
-          islands: islandDeltas.toCreate.length,
-          deltas: {
-            alliances: allianceDeltas.historyDeltas.length,
-            players: playerDeltas.historyDeltas.length,
-            towns: townDeltas.historyDeltas.length
-          },
-          conquers: newConquers.length
-        }
+        durationMs,
+        stats: statsPayload
       };
     } catch (error) {
-      console.error(`[WorldSyncPipeline] Sync Error for world ${worldId}:`, error);
-      return { success: false, worldId, error: error.message };
+      const durationMs = Date.now() - startTime;
+      console.error(`[WorldSyncPipeline] Sync Error for world ${worldId} (${durationMs}ms):`, error);
+
+      try {
+        await prismaClient.world.update({
+          where: { id: worldId },
+          data: {
+            lastSyncStatus: 'FAILURE',
+            lastSyncError: error.message,
+            lastSyncDurationMs: durationMs
+          }
+        });
+      } catch (dbErr) {
+        console.warn(`[WorldSyncPipeline] Failed to update world failure status:`, dbErr.message);
+      }
+
+      try {
+        await prismaClient.syncLog.create({
+          data: {
+            worldId,
+            status: 'FAILURE',
+            trigger,
+            durationMs,
+            errorMessage: error.message
+          }
+        });
+      } catch (logErr) {
+        console.warn(`[WorldSyncPipeline] Failed to record failure sync log:`, logErr.message);
+      }
+
+      try {
+        await logAuditEvent({
+          action: AUDIT_ACTIONS.WORLD_SYNC_TRIGGERED,
+          targetResource: `world:${worldId}`,
+          status: 'FAILURE',
+          prismaClient,
+          details: {
+            worldId,
+            trigger,
+            durationMs,
+            error: error.message,
+            stack: error.stack
+          }
+        });
+      } catch (auditErr) {
+        console.warn(`[WorldSyncPipeline] Failed to record failure audit log:`, auditErr.message);
+      }
+
+      await this.notifySyncFailure({
+        worldId,
+        trigger,
+        durationMs,
+        error
+      });
+
+      return {
+        success: false,
+        worldId,
+        durationMs,
+        error: error.message
+      };
     }
   },
 
