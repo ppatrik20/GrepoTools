@@ -1,47 +1,52 @@
 'use client';
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { useApp } from '@/context/AppContext';
-import { Shield, Lock, User, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Shield, Lock, User, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get('redirect') || '/map';
+  const rawRedirect = searchParams?.get('redirect');
 
-  const { refreshUser } = useApp();
+  // Prevent redirect loops back to /login
+  const redirectUrl = (rawRedirect && rawRedirect.startsWith('/') && !rawRedirect.startsWith('/login'))
+    ? rawRedirect
+    : '/map';
+
+  const { user, userLoading, refreshUser } = useApp();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [attemptsRemaining, setAttemptsRemaining] = useState(null);
 
-  // Attempt silent refresh on mount if user already has a valid refresh token cookie
-  useEffect(() => {
-    let cancelled = false;
-    const trySilentRefresh = async () => {
-      try {
-        const res = await fetch('/api/auth/refresh', { method: 'POST' });
-        if (res.ok && !cancelled) {
-          const data = await res.json();
-          await refreshUser();
-          const teams = data.user?.teams || [];
-          const isGlobalAdmin = data.user?.globalRole === 'GLOBAL_ADMIN';
-          const hasVerified = isGlobalAdmin || teams.some(t => t.status === 'VERIFIED');
+  const performRedirect = useCallback((targetUser) => {
+    const teams = targetUser?.teams || [];
+    const isGlobalAdmin = targetUser?.globalRole === 'GLOBAL_ADMIN';
+    const hasVerified = isGlobalAdmin || teams.some(t => t.status === 'VERIFIED');
 
-          if (!hasVerified && !isGlobalAdmin) {
-            router.push('/verify');
-          } else {
-            router.push(redirectUrl.startsWith('/') ? redirectUrl : '/map');
-          }
-        }
-      } catch {}
-    };
-    trySilentRefresh();
-    return () => { cancelled = true; };
-  }, [redirectUrl, refreshUser, router]);
+    const target = (!hasVerified && !isGlobalAdmin)
+      ? '/verify'
+      : redirectUrl;
+
+    // Use window.location.replace to ensure full session cookie synchronization
+    // and bypass any stale client-side Next.js App Router prefetch cache.
+    if (typeof window !== 'undefined') {
+      window.location.replace(target);
+    } else {
+      router.replace(target);
+    }
+  }, [redirectUrl, router]);
+
+  // If already authenticated via AppContext session check, redirect immediately
+  useEffect(() => {
+    if (!userLoading && user) {
+      performRedirect(user);
+    }
+  }, [user, userLoading, performRedirect]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -71,27 +76,32 @@ function LoginForm() {
         if (data.attemptsRemaining !== undefined) {
           setAttemptsRemaining(data.attemptsRemaining);
         }
+        setLoading(false);
         return;
       }
 
-      // Successful login
+      // Successful login: update context and perform clean navigation
+      setSuccess(true);
       await refreshUser();
-
-      const teams = data.user?.teams || [];
-      const isGlobalAdmin = data.user?.globalRole === 'GLOBAL_ADMIN';
-      const hasVerified = isGlobalAdmin || teams.some(t => t.status === 'VERIFIED');
-
-      if (!hasVerified && !isGlobalAdmin) {
-        router.push('/verify');
-      } else {
-        router.push(redirectUrl.startsWith('/') ? redirectUrl : '/map');
-      }
+      performRedirect(data.user);
     } catch (err) {
       setError('Connection error: ' + err.message);
-    } finally {
       setLoading(false);
     }
   };
+
+  // Sleek verification indicator if user session is still being checked on mount
+  if (userLoading) {
+    return (
+      <div className="w-full max-w-md p-8 bg-slate-900/90 border border-slate-700/80 rounded-2xl shadow-2xl backdrop-blur-xl text-center">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto mb-4 animate-pulse">
+          <Shield className="w-7 h-7 text-amber-400" />
+        </div>
+        <h2 className="text-xl font-bold text-white mb-2">Checking session...</h2>
+        <p className="text-sm text-slate-400">Verifying tactical credentials...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-md p-8 bg-slate-900/90 border border-slate-700/80 rounded-2xl shadow-2xl backdrop-blur-xl relative">
@@ -104,6 +114,13 @@ function LoginForm() {
           Enter your Grepolis in-game username & password
         </p>
       </div>
+
+      {success && (
+        <div className="mb-6 p-3.5 bg-emerald-950/50 border border-emerald-800/80 rounded-xl flex items-center gap-3 text-emerald-200 text-sm">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <span>Authentication successful! Entering Command Center...</span>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 p-3.5 bg-red-950/50 border border-red-800/80 rounded-xl flex items-start gap-3 text-red-200 text-sm">
@@ -121,13 +138,16 @@ function LoginForm() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+          <label htmlFor="login-username" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
             Grepolis Username
           </label>
           <div className="relative">
             <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
+              id="login-username"
+              name="username"
               type="text"
+              autoComplete="username"
               required
               autoFocus
               value={username}
@@ -139,13 +159,16 @@ function LoginForm() {
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+          <label htmlFor="login-password" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
             Password
           </label>
           <div className="relative">
             <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
+              id="login-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -157,11 +180,14 @@ function LoginForm() {
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || success}
           className="w-full mt-2 py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
-          {loading ? (
-            <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+          {loading || success ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>{success ? 'Redirecting...' : 'Authenticating...'}</span>
+            </>
           ) : (
             <>
               <span>Authenticate</span>

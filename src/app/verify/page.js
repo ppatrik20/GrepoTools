@@ -67,7 +67,13 @@ export default function VerifyTownPage() {
             Your in-game ownership of player <span className="text-emerald-400 font-semibold">{playerName}</span> on world <span className="font-mono text-white uppercase">{worldId}</span> is confirmed.
           </p>
           <button
-            onClick={() => router.push('/map')}
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.location.replace('/map');
+              } else {
+                router.push('/map');
+              }
+            }}
             className="py-3 px-6 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all inline-flex items-center gap-2 text-sm cursor-pointer"
           >
             <span>Enter Tactical Command Center</span>

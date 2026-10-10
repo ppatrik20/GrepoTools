@@ -17,6 +17,8 @@ import { logAuditEvent } from '@/lib/auth/audit';
 import { prisma } from '@/lib/prisma';
 import { POST as refreshPost } from '@/app/api/auth/refresh/route';
 import { POST as loginPost } from '@/app/api/auth/login/route';
+import { middleware } from '@/middleware.js';
+import { NextRequest } from 'next/server';
 
 describe('Auth & Team RBAC Test Suite', () => {
 
@@ -694,6 +696,81 @@ describe('Auth & Team RBAC Test Suite', () => {
       const data = await res.json();
       expect(res.status).toBe(401);
       expect(data.error).toBe('Invalid username or password');
+    });
+  });
+
+  // =========================================================================
+  // 6. Login Redirection & Middleware Route Protection
+  // =========================================================================
+  describe('6. Login Redirection & Middleware Route Protection', () => {
+    it('allows unauthenticated visitors to view /login without redirecting', async () => {
+      const req = new NextRequest('http://localhost:3000/login');
+      const res = await middleware(req);
+      expect(res.status).toBe(200); // NextResponse.next()
+    });
+
+    it('redirects authenticated admin on /login directly to /map by default', async () => {
+      const token = await generateAccessToken({
+        sub: 'admin_id',
+        username: 'perfi',
+        globalRole: 'GLOBAL_ADMIN',
+        teams: []
+      });
+
+      const req = new NextRequest('http://localhost:3000/login', {
+        headers: { cookie: `grepo_access=${token}` }
+      });
+      const res = await middleware(req);
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/map');
+    });
+
+    it('honors valid target parameter on /login for authenticated user', async () => {
+      const token = await generateAccessToken({
+        sub: 'admin_id',
+        username: 'perfi',
+        globalRole: 'GLOBAL_ADMIN',
+        teams: []
+      });
+
+      const req = new NextRequest('http://localhost:3000/login?redirect=%2Fplanner', {
+        headers: { cookie: `grepo_access=${token}` }
+      });
+      const res = await middleware(req);
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/planner');
+    });
+
+    it('prevents redirect loop when redirect param points back to /login', async () => {
+      const token = await generateAccessToken({
+        sub: 'admin_id',
+        username: 'perfi',
+        globalRole: 'GLOBAL_ADMIN',
+        teams: []
+      });
+
+      const req = new NextRequest('http://localhost:3000/login?redirect=%2Flogin', {
+        headers: { cookie: `grepo_access=${token}` }
+      });
+      const res = await middleware(req);
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/map');
+    });
+
+    it('redirects unverified non-admin on /login to /verify', async () => {
+      const token = await generateAccessToken({
+        sub: 'member_id',
+        username: 'spartan',
+        globalRole: 'USER',
+        teams: [{ teamId: 't1', status: 'UNVERIFIED', role: 'MEMBER' }]
+      });
+
+      const req = new NextRequest('http://localhost:3000/login', {
+        headers: { cookie: `grepo_access=${token}` }
+      });
+      const res = await middleware(req);
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toBe('http://localhost:3000/verify');
     });
   });
 

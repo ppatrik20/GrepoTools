@@ -28,7 +28,11 @@ export async function middleware(request) {
       if (!hasVerifiedTeam && !isGlobalAdmin) {
         return NextResponse.redirect(new URL('/verify', request.url));
       }
-      return NextResponse.redirect(new URL('/map', request.url));
+      const redirectParam = request.nextUrl.searchParams.get('redirect');
+      const targetPath = (redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('/login'))
+        ? redirectParam
+        : '/map';
+      return NextResponse.redirect(new URL(targetPath, request.url));
     }
     return NextResponse.next();
   }
