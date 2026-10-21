@@ -7,8 +7,13 @@ import {
   generateRefreshToken,
   setAuthCookies
 } from '@/lib/auth/tokens';
-import { logAuditEvent } from '@/lib/auth/audit';
-import { extractClientIp, extractUserAgent, buildTeamMembershipPayload } from '@/lib/auth/rbac';
+import { logAuditEvent, AUDIT_ACTIONS } from '@/lib/auth/audit';
+import {
+  extractClientIp,
+  extractUserAgent,
+  TEAM_MEMBERSHIP_INCLUDE,
+  buildTeamMembershipPayload
+} from '@/lib/auth/rbac';
 import { ensureSuperAdmin } from '@/lib/auth/bootstrap';
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -44,14 +49,7 @@ export async function POST(request) {
       },
       include: {
         teamMemberships: {
-          include: {
-            team: true,
-            customRoles: {
-              include: {
-                customRole: true
-              }
-            }
-          }
+          include: TEAM_MEMBERSHIP_INCLUDE
         }
       }
     });
@@ -61,7 +59,7 @@ export async function POST(request) {
       await dummyVerify(password);
       await logAuditEvent({
         actorUsername: trimmedUsername,
-        action: 'AUTH_LOGIN_FAILED',
+        action: AUDIT_ACTIONS.AUTH_LOGIN_FAILED,
         targetResource: `username:${trimmedUsername}`,
         ipAddress,
         userAgent,
@@ -82,7 +80,7 @@ export async function POST(request) {
       await logAuditEvent({
         userId: user.id,
         actorUsername: user.username,
-        action: 'AUTH_LOGIN_BLOCKED_LOCKOUT',
+        action: AUDIT_ACTIONS.AUTH_LOGIN_BLOCKED_LOCKOUT,
         targetResource: `user:${user.id}`,
         ipAddress,
         userAgent,
@@ -126,7 +124,7 @@ export async function POST(request) {
       await logAuditEvent({
         userId: user.id,
         actorUsername: user.username,
-        action: isNowLocked ? 'AUTH_ACCOUNT_LOCKED' : 'AUTH_LOGIN_FAILED',
+        action: isNowLocked ? AUDIT_ACTIONS.AUTH_ACCOUNT_LOCKED : AUDIT_ACTIONS.AUTH_LOGIN_FAILED,
         targetResource: `user:${user.id}`,
         ipAddress,
         userAgent,
@@ -195,7 +193,7 @@ export async function POST(request) {
     await logAuditEvent({
       userId: user.id,
       actorUsername: user.username,
-      action: 'AUTH_LOGIN_SUCCESS',
+      action: AUDIT_ACTIONS.AUTH_LOGIN_SUCCESS,
       targetResource: `user:${user.id}`,
       ipAddress,
       userAgent,

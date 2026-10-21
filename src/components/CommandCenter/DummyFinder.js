@@ -1,8 +1,12 @@
 'use client';
 import React, { useState } from 'react';
 import { Target, Search, Clock, AlertCircle } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
+import { formatDuration } from '@/lib/operations/OperationPlanner';
 
-export default function DummyFinder({ originTownId, durationSeconds, worldSpeed = 2, worldId = 'hu119' }) {
+export default function DummyFinder({ originTownId, durationSeconds, worldSpeed = 2, worldId }) {
+  const { activeWorldId } = useApp();
+  const effectiveWorldId = worldId || activeWorldId || 'hu119';
   const [unitSpeed, setUnitSpeed] = useState(13); // Default light ship speed
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
@@ -21,7 +25,7 @@ export default function DummyFinder({ originTownId, durationSeconds, worldSpeed 
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/snipe/dummy-targets?world=${worldId}&origin_id=${originTownId}&duration=${durationSeconds}&unit_speed=${unitSpeed}&world_speed=${worldSpeed}`);
+      const res = await fetch(`/api/snipe/dummy-targets?world=${encodeURIComponent(effectiveWorldId)}&origin_id=${originTownId}&duration=${durationSeconds}&unit_speed=${unitSpeed}&world_speed=${worldSpeed}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch dummy targets');
       
@@ -31,13 +35,6 @@ export default function DummyFinder({ originTownId, durationSeconds, worldSpeed 
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatTime = (seconds) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -103,7 +100,7 @@ export default function DummyFinder({ originTownId, durationSeconds, worldSpeed 
               </div>
               <div className="flex items-center gap-1.5 font-mono text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                 <Clock size={12} />
-                <span>{formatTime(target.travelTime)}</span>
+                <span>{formatDuration(target.travelTime)}</span>
               </div>
             </div>
           ))}

@@ -122,8 +122,11 @@ export function removeTacticalPin(worldId, pinId, storage = (typeof localStorage
   }
 }
 
+export const deleteTacticalPin = removeTacticalPin;
+
 /**
- * Generates direct one-click export URL to the Recall Sniper tool (/snipe).
+ * Generates direct one-click export URL to the Recall Sniper tool (/snipe/recall).
+ * Defaults baseUrl to '/snipe' for backward-compatible E2E contract unless specified.
  * 
  * @param {Object} pin - Tactical pin
  * @param {string} baseUrl - Base path (default '/snipe')
@@ -164,6 +167,7 @@ export const TacticalPinboardEngine = {
   getTacticalPins,
   saveTacticalPin,
   removeTacticalPin,
+  deleteTacticalPin,
   exportPinToSniper,
   exportPinToPlanner,
   PIN_TYPES,

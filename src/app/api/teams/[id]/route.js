@@ -1,19 +1,20 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, hasPermission, PERMISSIONS } from '@/lib/auth/rbac';
+import {
+  requireAuth,
+  requireTeamAccess,
+  PERMISSIONS,
+  DEFAULT_ROLE_TEMPLATES,
+  AUDIT_ACTIONS
+} from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 
 export async function GET(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id },
+    const access = await requireTeamAccess(request, id, {
+      allowUnverified: true,
       include: {
         world: {
           select: { id: true, name: true, server: true }
@@ -24,19 +25,6 @@ export async function GET(request, { params }) {
           },
           orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }]
         },
-        members: {
-          include: {
-            user: {
-              select: { id: true, username: true, globalRole: true, isActive: true }
-            },
-            customRoles: {
-              include: {
-                customRole: true
-              }
-            }
-          },
-          orderBy: { createdAt: 'asc' }
-        },
         invites: {
           where: {
             expiresAt: { gt: new Date() }
@@ -46,27 +34,116 @@ export async function GET(request, { params }) {
       }
     });
 
-    if (!team) {
-      return NextResponse.json(
-        { error: 'Team not found' },
-        { status: 404 }
-      );
+    if (!access.authorized) {
+      return access.response;
     }
 
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const membership = team.members.find(m => m.userId === auth.user.sub);
-    const isTeamAdmin = membership?.role === 'TEAM_ADMIN';
-    const canManageInvites = isGlobalAdmin || isTeamAdmin || hasPermission(auth, team.id, PERMISSIONS.INVITES_MANAGE);
+    const { team, callerMember, isGlobalAdmin, isTeamAdmin, authority, user } = access;
 
-    // Authorization: User must be Global Admin or Member of the team
-    if (!isGlobalAdmin && !membership) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
+    // Auto-seed DEFAULT_ROLE_TEMPLATES if team has no customRoles yet
+    let customRoles = Array.isArray(team.customRoles) ? team.customRoles : [];
+    if (customRoles.length === 0) {
+      if (typeof prisma.teamCustomRole?.createMany === 'function') {
+        await prisma.teamCustomRole.createMany({
+          data: DEFAULT_ROLE_TEMPLATES.map(tpl => ({
+            teamId: team.id,
+            name: tpl.name,
+            description: tpl.description,
+            color: tpl.color,
+            icon: tpl.icon,
+            priority: tpl.priority,
+            permissions: tpl.permissions
+          })),
+          skipDuplicates: true
+        }).catch(() => {});
+      }
+      if (typeof prisma.teamCustomRole?.findMany === 'function') {
+        customRoles = await prisma.teamCustomRole.findMany({
+          where: { teamId: team.id },
+          include: {
+            _count: { select: { assignments: true } }
+          },
+          orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }]
+        });
+      }
     }
 
-    // Permitted users can view pending invites (where usedCount < maxUses)
+    const formattedRoles = customRoles.map(r => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      color: r.color,
+      icon: r.icon,
+      priority: r.priority,
+      permissions: r.permissions,
+      memberCount: r._count?.assignments ?? r.memberCount ?? 0,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt
+    }));
+
+    // Batch-enrich team.members with in-game player points/rank
+    const rawMembers = Array.isArray(team.members) ? team.members : [];
+    const playerIds = rawMembers.map(m => m.playerId).filter(Boolean);
+    const players = playerIds.length > 0 && typeof prisma.player?.findMany === 'function'
+      ? await prisma.player.findMany({
+          where: {
+            worldId: team.worldId,
+            id: { in: playerIds }
+          },
+          include: {
+            alliance: {
+              select: { id: true, name: true }
+            }
+          }
+        })
+      : [];
+
+    const playerMap = new Map((players || []).map(p => [p.id, p]));
+
+    const enrichedMembers = rawMembers.map(m => {
+      const pStats = playerMap.get(m.playerId);
+      const isSelf = m.userId === user.sub;
+
+      const roles = (m.customRoles || [])
+        .map(r => {
+          const roleObj = r.customRole || r;
+          if (!roleObj || (!roleObj.id && !roleObj.name)) return null;
+          return {
+            id: roleObj.id,
+            assignmentId: r.id,
+            name: roleObj.name,
+            description: roleObj.description,
+            color: roleObj.color || '#3B82F6',
+            icon: roleObj.icon || 'shield',
+            priority: roleObj.priority || 0,
+            permissions: roleObj.permissions || []
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.priority - a.priority);
+
+      return {
+        id: m.id,
+        userId: m.userId,
+        user: m.user,
+        username: m.user?.username || m.username || 'Unknown',
+        playerId: m.playerId,
+        playerName: m.playerName,
+        role: m.role,
+        verificationStatus: m.verificationStatus,
+        verificationCode: (isTeamAdmin || isSelf) ? m.verificationCode : undefined,
+        verifiedAt: m.verifiedAt,
+        createdAt: m.createdAt,
+        points: pStats?.points ?? m.points ?? 0,
+        townsCount: pStats?.towns ?? m.townsCount ?? 0,
+        rank: pStats?.rank ?? m.rank ?? null,
+        allianceName: pStats?.alliance?.name ?? m.allianceName ?? 'No Alliance',
+        allianceId: pStats?.allianceId ?? m.allianceId ?? null,
+        customRoles: roles
+      };
+    });
+
+    const canManageInvites = authority.hasCapability(PERMISSIONS.INVITES_MANAGE);
     const invites = canManageInvites
       ? (team.invites || []).filter(inv => inv.usedCount < inv.maxUses)
       : [];
@@ -78,11 +155,14 @@ export async function GET(request, { params }) {
         description: team.description,
         worldId: team.worldId,
         world: team.world,
-        members: team.members,
-        customRoles: team.customRoles,
+        members: enrichedMembers,
+        customRoles: formattedRoles,
         invites,
-        currentUserRole: isGlobalAdmin ? 'GLOBAL_ADMIN' : membership?.role
-      }
+        currentUserRole: isGlobalAdmin ? 'GLOBAL_ADMIN' : callerMember?.role
+      },
+      members: enrichedMembers,
+      customRoles: formattedRoles,
+      invites
     });
   } catch (err) {
     console.error('Error fetching team by id:', err);
@@ -112,7 +192,7 @@ export async function DELETE(request, { params }) {
     await logAuditEvent({
       userId: auth.user.sub,
       actorUsername: auth.user.username,
-      action: 'TEAM_DELETED',
+      action: AUDIT_ACTIONS.TEAM_DELETED,
       targetResource: `team:${id}`,
       ipAddress: auth.ipAddress,
       userAgent: auth.userAgent,

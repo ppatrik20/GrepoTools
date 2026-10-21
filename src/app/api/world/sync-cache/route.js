@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { WorldCacheCompiler } from '@/lib/world/WorldCacheCompiler';
+import { requireAuth } from '@/lib/auth/rbac';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(request) {
+  const auth = await requireAuth(request, { allowUnverified: true });
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     let worldId = searchParams.get('world');

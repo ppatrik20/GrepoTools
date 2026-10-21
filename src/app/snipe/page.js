@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Crosshair, Plus, Trash2, Clock, Swords, Shield, RefreshCw, ArrowRight, Loader2 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import SnipeQueueItem from '@/components/SnipeQueueItem';
+import { PageContainer } from '@/components/ui';
 import { 
   planAttackOperation, 
   resolveOperationTargeting 
@@ -16,6 +17,9 @@ function SnipeTimerContent() {
   const searchParams = useSearchParams();
   const targetTownId = searchParams.get('targetTownId');
   const originTownId = searchParams.get('originTownId');
+  const recallHref = searchParams.toString()
+    ? `/snipe/recall?${searchParams.toString()}`
+    : '/snipe/recall';
 
   const [targetTime, setTargetTime] = useState('');
   const [travelTime, setTravelTime] = useState('');
@@ -100,7 +104,7 @@ function SnipeTimerContent() {
   };
 
   return (
-    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+    <PageContainer className="flex flex-col gap-6">
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-5 gap-4">
         <div>
@@ -117,8 +121,18 @@ function SnipeTimerContent() {
           </p>
         </div>
 
-        <Link href="/snipe/recall" className="btn btn-primary text-xs">
-          Open Midpoint Recall Sniper →
+        <Link href={recallHref} className="btn btn-primary text-xs">
+          Open Unified Midpoint Recall Sniper →
+        </Link>
+      </div>
+
+      {/* Unified Sniper Consolidation Banner */}
+      <div className="glass-panel p-4 rounded-2xl border border-primary/30 bg-primary/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="text-xs text-slate-200">
+          <strong className="text-white">Unified Tactical Cockpit Available:</strong> Both the Outbound Launch Window Queue and Precision Midpoint Recall Sniper are now consolidated in the Recall Sniper command center.
+        </div>
+        <Link href={recallHref} className="btn btn-primary text-xs py-1.5 px-3 shrink-0">
+          Launch Unified Sniper <ArrowRight size={13} />
         </Link>
       </div>
 
@@ -219,7 +233,7 @@ function SnipeTimerContent() {
         </div>
 
       </div>
-    </div>
+    </PageContainer>
   );
 }
 

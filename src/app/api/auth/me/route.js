@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth/rbac';
+import {
+  requireAuth,
+  TEAM_MEMBERSHIP_INCLUDE,
+  buildTeamMembershipPayload
+} from '@/lib/auth/rbac';
 
 export async function GET(request) {
   const auth = await requireAuth(request, { allowUnverified: true });
@@ -9,21 +13,16 @@ export async function GET(request) {
   }
 
   try {
-    const user = await prisma.user.findUnique({
+    const dbUser = await prisma.user.findUnique({
       where: { id: auth.user.sub },
       include: {
         teamMemberships: {
-          include: {
-            team: true,
-            world: {
-              select: { id: true, name: true, server: true }
-            }
-          }
+          include: TEAM_MEMBERSHIP_INCLUDE
         }
       }
     });
 
-    if (!user) {
+    if (!dbUser) {
       if (auth.user.globalRole === 'GLOBAL_ADMIN') {
         return NextResponse.json({
           user: {
@@ -40,25 +39,13 @@ export async function GET(request) {
       );
     }
 
-    const teams = (user.teamMemberships || []).map(m => ({
-      membershipId: m.id,
-      teamId: m.teamId,
-      teamName: m.team?.name || 'Unknown Team',
-      worldId: m.worldId,
-      worldName: m.world?.name || m.worldId,
-      role: m.role,
-      playerId: m.playerId,
-      playerName: m.playerName,
-      verificationCode: m.verificationCode,
-      status: m.verificationStatus,
-      verifiedAt: m.verifiedAt
-    }));
+    const teams = buildTeamMembershipPayload(dbUser.teamMemberships || []);
 
     return NextResponse.json({
       user: {
-        id: user.id,
-        username: user.username,
-        globalRole: user.globalRole,
+        id: dbUser.id,
+        username: dbUser.username,
+        globalRole: dbUser.globalRole,
         teams
       }
     });

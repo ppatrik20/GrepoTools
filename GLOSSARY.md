@@ -118,4 +118,21 @@ _Avoid_: UI helpers, common components, widget library
 The semantic CSS custom properties and Tailwind v4 theme definitions standardizing surface elevations, command palettes, monospace telemetry, and border treatments.
 _Avoid_: Theme variables, CSS constants, color styles
 
+**City Planner Engine**:
+The pure in-process domain module computing Grepolis farm capacity (including Plow and Thermal Baths modifiers), building population curves, demolition population reclaims, categorized troop compositions, and Bunks transport sufficiency behind a single interface.
+_Avoid_: Planner helper, nuke calculator, population service
+
+**Battle Report Digester**:
+The pure in-process domain module validating external report URLs and extracting combat telemetry, player identities, town names, and resource yields from GRCT HTML documents and Grepolis BBCode strings.
+_Avoid_: Report scraper, BBCode helper, report service
+
+**Report Operations Adapter**:
+The unified client adapter seam encapsulating battle report ingestion, world-scoped archive retrieval, search filtering, and report deletion.
+_Avoid_: Report API client, scraper service, archive fetcher
+
+**Map Overlay Storage Adapter**:
+The unified client adapter seam coordinating alliance coalition persistence, custom territory color overrides, and Tactical Pin storage across remote world endpoints and browser storage.
+_Avoid_: Coalition helper, map storage service, pin client
+
+
 

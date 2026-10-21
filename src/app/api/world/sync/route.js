@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath, revalidateTag } from 'next/cache';
 import { syncWorld, syncAllActiveWorlds } from '@/lib/syncEngine';
+import { requireAuth } from '@/lib/auth/rbac';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes max for multi-world sync
 
 export async function GET(request) {
+  const auth = await requireAuth(request, { allowUnverified: true });
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const worldParam = searchParams.get('world');
@@ -39,6 +45,11 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const auth = await requireAuth(request, { allowUnverified: true });
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
   try {
     let body = {};
     try {

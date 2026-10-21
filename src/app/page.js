@@ -1,16 +1,22 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { 
   Target, Activity, Map as MapIcon, ShieldAlert, Crosshair, MapPin, 
   Globe, User, ArrowUpRight, ArrowDownRight, RefreshCw, Plus, Clock, Swords,
-  Trophy, Shield, ExternalLink
+  Trophy, Shield, ExternalLink, Pin
 } from 'lucide-react';
 import { 
   LocalOperationsAdapter, 
   RemoteOperationsAdapter 
 } from '@/lib/operations/OperationsStorage';
+import {
+  getTacticalPins,
+  PIN_TYPES,
+  PIN_PRIORITIES
+} from '@/lib/map/MapOverlayStorageAdapter';
 import { 
   Button, 
   Card, 
@@ -20,13 +26,17 @@ import {
   StatCard, 
   Badge, 
   PageHeader, 
+  PageContainer,
   SkeletonStatGrid,
-  EmptyState 
+  EmptyState,
+  formatTacticalNumber
 } from '@/components/ui';
 
 export default function CommandCenter() {
+  const router = useRouter();
   const { activeWorld, activeWorldId, activePlayer, masterData, loadingPlayer, switchPlayer } = useApp();
   const [activeSnipes, setActiveSnipes] = useState([]);
+  const [tacticalPins, setTacticalPins] = useState([]);
   const [dbOperations, setDbOperations] = useState([]);
   const [loadingOps, setLoadingOps] = useState(true);
 
@@ -42,9 +52,10 @@ export default function CommandCenter() {
       })
       .catch(() => setLoadingOps(false));
 
-    // Load active recall groups from local storage
+    // Load active recall groups and tactical pins from local storage
     const loadedGroups = LocalOperationsAdapter.getRecallGroups(activeWorldId);
     setActiveSnipes(loadedGroups);
+    setTacticalPins(getTacticalPins(activeWorldId));
   }, [activeWorldId]);
 
   const headerBadges = [
@@ -62,7 +73,7 @@ export default function CommandCenter() {
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <PageContainer className="flex flex-col gap-6">
       {/* Standardized Hero Header Banner */}
       <PageHeader
         title="Tactical Command Center"
@@ -112,28 +123,28 @@ export default function CommandCenter() {
                 <SkeletonStatGrid count={4} />
               ) : activePlayer ? (
                 <>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 tabular-nums">
                     <StatCard
                       label="Total Points"
-                      value={activePlayer.points?.toLocaleString()}
+                      value={formatTacticalNumber(activePlayer.points)}
                       variant="accent"
                       icon={Trophy}
                     />
                     <StatCard
                       label="Global Rank"
-                      value={`#${activePlayer.rank}`}
+                      value={`#${formatTacticalNumber(activePlayer.rank)}`}
                       variant="default"
                       icon={Activity}
                     />
                     <StatCard
                       label="Town Count"
-                      value={activePlayer.townsList?.length || activePlayer.towns}
+                      value={formatTacticalNumber(activePlayer.townsList?.length || activePlayer.towns)}
                       variant="primary"
                       icon={Shield}
                     />
                     <StatCard
                       label="Battle Points"
-                      value={((activePlayer.abp || 0) + (activePlayer.dbp || 0)).toLocaleString()}
+                      value={formatTacticalNumber((activePlayer.abp || 0) + (activePlayer.dbp || 0))}
                       variant="emerald"
                       icon={Swords}
                     />
@@ -155,7 +166,7 @@ export default function CommandCenter() {
                               <span className="flex items-center gap-1.5 text-emerald-400">
                                 <MapPin size={13}/> Town #{c.townId}
                               </span>
-                              <span className="font-mono text-xs text-slate-400">{c.townPoints?.toLocaleString()} pts</span>
+                              <span className="font-mono tabular-nums text-xs text-slate-400">{formatTacticalNumber(c.townPoints)} pts</span>
                             </li>
                           ))}
                         </ul>
@@ -178,7 +189,7 @@ export default function CommandCenter() {
                               <span className="flex items-center gap-1.5 text-red-400">
                                 <MapPin size={13}/> Town #{c.townId}
                               </span>
-                              <span className="font-mono text-xs text-slate-400">{c.townPoints?.toLocaleString()} pts</span>
+                              <span className="font-mono tabular-nums text-xs text-slate-400">{formatTacticalNumber(c.townPoints)} pts</span>
                             </li>
                           ))}
                         </ul>
@@ -194,7 +205,7 @@ export default function CommandCenter() {
                   title="No Active Player Profile"
                   description="Select a player identity to unlock real-time empire monitoring, city specialization, and targeted defensive alerts."
                   actionLabel="Browse Scoreboard & Select Player"
-                  onAction={() => {}}
+                  onAction={() => router.push('/stats')}
                   actionIcon={Trophy}
                 />
               )}
@@ -224,7 +235,7 @@ export default function CommandCenter() {
                       className="flex justify-between items-center p-3.5 bg-slate-950/60 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl transition-all"
                     >
                       <div>
-                        <div className="font-bold text-indigo-400 text-sm">{snipe.targetCity}</div>
+                        <div className="font-bold text-indigo-400 text-sm">{snipe.name || snipe.targetCity}</div>
                         <div className="text-xs text-slate-400 mt-0.5">
                           {snipe.worldType?.toUpperCase()} • {snipe.movements?.length || 0} tracked incoming attacks
                         </div>
@@ -263,8 +274,72 @@ export default function CommandCenter() {
           </Card>
         </div>
 
-        {/* Right Column: Quick Tactical Tools & Navigation Cards */}
+        {/* Right Column: Live Active Operations & Tactical Pins + Quick Tactical Tools */}
         <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle icon={Pin} className="text-amber-400">
+                Active Operations & Tactical Pins
+              </CardTitle>
+              <Badge variant="neutral" mono size="xs">
+                {activeSnipes.length + tacticalPins.length} Active
+              </Badge>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2.5">
+              {activeSnipes.length === 0 && tacticalPins.length === 0 ? (
+                <div className="text-xs text-slate-400 py-3 text-center bg-slate-950/50 rounded-xl border border-slate-800/60">
+                  No local tactical pins or recall operations active for {activeWorldId?.toUpperCase()}.
+                </div>
+              ) : (
+                <>
+                  {tacticalPins.slice(0, 4).map(pin => {
+                    const pinMeta = PIN_TYPES[pin.type] || PIN_TYPES.PRIMARY_TARGET;
+                    const prioMeta = PIN_PRIORITIES[pin.priority] || PIN_PRIORITIES.NORMAL;
+                    return (
+                      <Link
+                        key={pin.id}
+                        href={`/snipe/recall?targetTownId=${pin.townId}`}
+                        className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-900 border border-slate-800/80 hover:border-slate-700 transition-colors text-xs"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <div className="font-bold text-white truncate flex items-center gap-1.5">
+                            <span>{pinMeta.icon}</span>
+                            <span className="truncate">{pin.townName}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono truncate">
+                            ({pin.townX}, {pin.townY}) • {pinMeta.label}
+                          </div>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border shrink-0 ${prioMeta.badge}`}>
+                          {prioMeta.label}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                  {activeSnipes.slice(0, 3).map(group => (
+                    <Link
+                      key={group.id}
+                      href="/snipe/recall"
+                      className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-900 border border-slate-800/80 hover:border-slate-700 transition-colors text-xs"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="font-bold text-indigo-300 truncate">
+                          🎯 {group.name || group.targetCity}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {group.movements?.length || 0} incoming • {group.plans?.length || 0} recall plans
+                        </div>
+                      </div>
+                      <Badge variant="primary" mono size="xs">
+                        Recall
+                      </Badge>
+                    </Link>
+                  ))}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
           <Link href="/snipe/recall" className="group">
             <Card hoverEffect className="group-hover:border-indigo-500/50">
               <h3 className="flex items-center gap-2 text-white group-hover:text-indigo-400 font-bold text-sm transition-colors">
@@ -322,6 +397,6 @@ export default function CommandCenter() {
         </div>
 
       </div>
-    </div>
+    </PageContainer>
   );
 }

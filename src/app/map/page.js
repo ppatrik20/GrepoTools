@@ -20,7 +20,11 @@ import TacticalPinModal from "@/components/map/TacticalPinModal";
 import MinimapRadar from "@/components/map/MinimapRadar";
 import AllianceCoalitionModal from "@/components/map/AllianceCoalitionModal";
 
-import { getTacticalPins } from "@/lib/map/tacticalPins";
+import {
+  getTacticalPins,
+  loadCoalitionsAndColors,
+  saveCoalitionsAndColors
+} from "@/lib/map/MapOverlayStorageAdapter";
 import { registerMapAssets } from "@/lib/map/assetLoader";
 import { useApp } from "@/context/AppContext";
 import { worldToLng, worldToLat } from "@/lib/map/coordProjection";
@@ -158,85 +162,38 @@ export default function WorldMap() {
   // Load alliance coalitions for current world and auto-seed member colors
   useEffect(() => {
     if (!activeWorldId) return;
-    fetch(`/api/world/coalitions?world=${activeWorldId}`)
-      .then(res => res.json())
-      .then(result => {
-        if (result.success && Array.isArray(result.coalitions)) {
-          setCoalitions(result.coalitions);
-          // Auto-seed coalition colors to all member alliances
-          setCustomColors(prev => {
-            const next = { ...prev };
-            result.coalitions.forEach(c => {
-              if (!c?.color) return;
-              (c.alliances || []).forEach(m => {
-                const name = typeof m === 'string' ? m : m?.name;
-                if (name && !next[name]) next[name] = c.color;
-              });
-              if (!next[c.name]) next[c.name] = c.color;
-            });
-            return next;
-          });
-        }
-      })
-      .catch(() => {
-        try {
-          const cached = localStorage.getItem(`grepotools_coalitions_${activeWorldId}`);
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            setCoalitions(parsed);
-            setCustomColors(prev => {
-              const next = { ...prev };
-              parsed.forEach(c => {
-                if (!c?.color) return;
-                (c.alliances || []).forEach(m => {
-                  const name = typeof m === 'string' ? m : m?.name;
-                  if (name && !next[name]) next[name] = c.color;
-                });
-                if (!next[c.name]) next[c.name] = c.color;
-              });
-              return next;
-            });
-          }
-        } catch (e) {}
-      });
+    let cancelled = false;
+
+    loadCoalitionsAndColors(activeWorldId).then(({ coalitions: loadedCoalitions, customColors: derivedColors }) => {
+      if (cancelled) return;
+      setCoalitions(loadedCoalitions);
+      setCustomColors(prev => ({ ...derivedColors, ...prev }));
+    });
 
     // Fetch all alliances in current world for searching in modal
     fetch(`/api/world/alliances?world=${activeWorldId}`)
       .then(res => res.json())
       .then(result => {
-        if (result.success && Array.isArray(result.alliances)) {
+        if (!cancelled && result.success && Array.isArray(result.alliances)) {
           setAllWorldAlliances(result.alliances);
         }
       })
       .catch(e => console.error("Failed to load all alliances:", e));
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeWorldId]);
 
   const handleSaveCoalitions = async (newCoalitions) => {
     setCoalitions(newCoalitions);
-    // Auto-propagate coalition colors to all member alliances
-    setCustomColors(prev => {
-      const next = { ...prev };
-      newCoalitions.forEach(c => {
-        if (!c?.color) return;
-        (c.alliances || []).forEach(m => {
-          const name = typeof m === 'string' ? m : m?.name;
-          if (name) next[name] = c.color;
-        });
-        next[c.name] = c.color;
-      });
-      return next;
-    });
     try {
-      localStorage.setItem(`grepotools_coalitions_${activeWorldId}`, JSON.stringify(newCoalitions));
-      const res = await fetch('/api/world/coalitions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worldId: activeWorldId, coalitions: newCoalitions })
+      const updatedColors = await saveCoalitionsAndColors(activeWorldId, newCoalitions, {
+        baseColors: customColors
       });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const result = await res.json();
-      if (result.success && Array.isArray(result.coalitions)) {
-        setCoalitions(result.coalitions);
+      setCustomColors(prev => ({ ...prev, ...updatedColors }));
+      if (Array.isArray(updatedColors.coalitions)) {
+        setCoalitions(updatedColors.coalitions);
       }
     } catch (e) {
       console.error("Failed to save coalitions:", e);
@@ -359,8 +316,10 @@ export default function WorldMap() {
     });
   }, []);
 
+  const leftPanelOpen = !isSidebarCollapsed;
+
   return (
-    <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, backgroundColor: '#0b101e', zIndex: 10 }}>
+    <div className="h-[calc(100vh-64px)] w-full relative overflow-hidden bg-[#0b101e]">
       {/* Top Floating Unified Search & Action Bar */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center">
         <UnifiedSearchPanel
@@ -750,7 +709,13 @@ export default function WorldMap() {
       )}
 
       {/* Floating Interactive Minimap Radar Widget (Milestone 5) */}
-      <div className="absolute bottom-4 left-4 z-30 pointer-events-auto">
+      <div
+        className={`absolute bottom-4 z-30 pointer-events-auto ${leftPanelOpen ? 'hidden md:block' : 'block'}`}
+        style={{
+          left: leftPanelOpen ? '19.5rem' : '1rem',
+          transition: 'left 0.25s ease'
+        }}
+      >
         <MinimapRadar
           towns={scene.tacticalStats.rawTowns}
           alliances={topAlliances}

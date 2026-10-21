@@ -198,7 +198,7 @@ function RoutePlannerTool({
             Clear Route
           </button>
           <Link
-            href={`/snipe?targetTownId=${target.id}&originTownId=${origin.id}`}
+            href={`/snipe/recall?targetTownId=${target.id}&originTownId=${origin.id}`}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-bold transition-all shadow-md"
           >
             <Send size={12} /> Send to Sniper Tool

@@ -1,48 +1,77 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import CityManagerCard from '@/components/CommandCenter/CityManagerCard';
 import { useApp } from '@/context/AppContext';
-import { Shield, Swords, Anchor, Users, ArrowRight, Zap, AlertTriangle, CheckCircle2, ChevronRight, Layers, User } from 'lucide-react';
-import { PageHeader, Card, CardHeader, CardTitle, CardContent, StatCard, Badge, Button, EmptyState } from '@/components/ui';
+import {
+  Shield,
+  Swords,
+  Anchor,
+  Users,
+  AlertTriangle,
+  User,
+} from 'lucide-react';
+import {
+  PageHeader,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  StatCard,
+  Badge,
+  Button,
+  EmptyState,
+} from '@/components/ui';
+import {
+  SPECIALIZATION_PRESETS,
+  DEFAULT_DEMOLITION_TARGETS,
+  DEFAULT_GREPOLIS_UNITS,
+  classifyTroopCategory,
+  applyPresetToUnits,
+  compileCityPlan,
+  TownPlannerAdapter,
+} from '@/lib/planner/CityPlannerEngine';
+
+const TROOP_TABS = [
+  { id: 'ALL', label: 'All Forces' },
+  { id: 'NAVAL', label: 'Naval Fleets' },
+  { id: 'LAND', label: 'Land Forces' },
+  { id: 'MYTHIC', label: 'Mythological' },
+];
 
 export default function PlannerPage() {
-  const { activeWorldId, activeWorld, activePlayer, loadingPlayer } = useApp();
+  const { activeWorldId, activeWorld, activePlayer } = useApp();
   const [units, setUnits] = useState([]);
   const [counts, setCounts] = useState({});
-  const [maxPopulation, setMaxPopulation] = useState(3000);
+  const [activeCategoryTab, setActiveCategoryTab] = useState('ALL');
   const [loadingUnits, setLoadingUnits] = useState(true);
 
   const [towns, setTowns] = useState([]);
   const [selectedTownId, setSelectedTownId] = useState('');
   const [loadingTowns, setLoadingTowns] = useState(true);
-
-  // Specialization quick presets
-  const PRESETS = {
-    NO_LS: { label: 'Naval Offense (Fast Fire Ships)', desc: 'Maximizes Light Ships, Level 1 Wall, Level 0 Barracks', units: { light_ship: 280 } },
-    LO_TS: { label: 'Land Offense (Slingers/Hoplites + Fast Transports)', desc: 'Heavy land nuke with fast transport capacity', units: { slinger: 1200, hoplite: 800, fast_transport: 125 } },
-    ND_BIR: { label: 'Naval Defense (Bireme Wall)', desc: 'Full Bireme stack for fast port defense', units: { bireme: 320 } },
-    LD_DEF: { label: 'Land Defense (Swords/Archers/Hoplites)', desc: 'Balanced defense against blunt, sharp, and distance', units: { swordsman: 900, archer: 900, hoplite: 900 } },
-    MYTH_MANTICORE: { label: 'Mythic Offense (Manticore Flying Nuke)', desc: 'Flying island hopping strike force (No transports needed)', units: { manticore: 35 } }
-  };
+  const [demolitionTargets, setDemolitionTargets] = useState(() => ({
+    ...DEFAULT_DEMOLITION_TARGETS,
+  }));
 
   useEffect(() => {
-    // Fetch units
-    fetch('/api/units')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && Array.isArray(data.units)) {
-          const sorted = data.units.sort((a, b) => (a.population || 0) - (b.population || 0));
-          setUnits(sorted);
-        }
+    let active = true;
+    setLoadingUnits(true);
+    TownPlannerAdapter.fetchTroopCatalog()
+      .then((catalog) => {
+        if (!active) return;
+        setUnits(catalog.length > 0 ? catalog : [...DEFAULT_GREPOLIS_UNITS]);
         setLoadingUnits(false);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error(err);
+        if (!active) return;
+        setUnits([...DEFAULT_GREPOLIS_UNITS]);
         setLoadingUnits(false);
       });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // Fetch player towns for active world & player
   useEffect(() => {
     if (!activeWorldId || !activePlayer?.id) {
       setTowns([]);
@@ -50,77 +79,87 @@ export default function PlannerPage() {
       return;
     }
 
+    let active = true;
     setLoadingTowns(true);
-    fetch(`/api/towns?world=${activeWorldId}&playerId=${activePlayer.id}`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setTowns(data);
-          if (data.length > 0) setSelectedTownId(data[0].id.toString());
+    TownPlannerAdapter.fetchTownRoster({
+      worldId: activeWorldId,
+      playerId: activePlayer.id,
+    })
+      .then((roster) => {
+        if (!active) return;
+        setTowns(roster);
+        if (roster.length > 0) {
+          setSelectedTownId(roster[0].id.toString());
         } else {
-          setTowns([]);
+          setSelectedTownId('');
         }
         setLoadingTowns(false);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error(err);
+        if (!active) return;
+        setTowns([]);
         setLoadingTowns(false);
       });
+
+    return () => {
+      active = false;
+    };
   }, [activeWorldId, activePlayer?.id]);
 
   const handleCountChange = (unitId, val) => {
     const num = parseInt(val, 10);
-    setCounts(prev => ({
+    setCounts((prev) => ({
       ...prev,
-      [unitId]: isNaN(num) || num < 0 ? 0 : num
+      [unitId]: isNaN(num) || num < 0 ? 0 : num,
     }));
   };
 
   const applyPreset = (presetKey) => {
-    const preset = PRESETS[presetKey];
+    const preset = SPECIALIZATION_PRESETS[presetKey];
     if (!preset) return;
-    const newCounts = {};
-    Object.entries(preset.units).forEach(([k, v]) => {
-      const u = units.find(unit => unit.id.toLowerCase().includes(k) || unit.name.toLowerCase().includes(k.replace('_', ' ')));
-      if (u) newCounts[u.id] = v;
-    });
-    setCounts(newCounts);
+    const nextCounts = applyPresetToUnits(presetKey, units);
+    setCounts(nextCounts);
+    if (preset.buildingTargets) {
+      setDemolitionTargets((prev) => ({
+        ...prev,
+        ...preset.buildingTargets,
+      }));
+    }
   };
 
-  const selectedTown = towns.find(t => t.id.toString() === selectedTownId);
+  const selectedTown = useMemo(
+    () => towns.find((t) => t.id.toString() === selectedTownId),
+    [towns, selectedTownId]
+  );
 
-  // Army Calculations
-  const usedPopulation = units.reduce((sum, u) => {
-    return sum + (counts[u.id] || 0) * (u.population || 0);
-  }, 0);
+  const handleTownChange = (updatedTown) => {
+    if (!updatedTown?.id) return;
+    setTowns((prev) =>
+      prev.map((t) => (t.id === updatedTown.id ? { ...t, ...updatedTown } : t))
+    );
+  };
 
-  const remainingPopulation = maxPopulation - usedPopulation;
-  const totalAttack = units.reduce((sum, u) => sum + (counts[u.id] || 0) * (u.attack || 0), 0);
-  const totalDefHack = units.reduce((sum, u) => sum + (counts[u.id] || 0) * (u.def_hack || 0), 0);
-  const totalDefPierce = units.reduce((sum, u) => sum + (counts[u.id] || 0) * (u.def_pierce || 0), 0);
-  const totalDefDistance = units.reduce((sum, u) => sum + (counts[u.id] || 0) * (u.def_distance || 0), 0);
+  const plan = useMemo(
+    () =>
+      compileCityPlan({
+        town: selectedTown || { farmLevel: 40 },
+        buildingTargets: demolitionTargets,
+        troopCounts: counts,
+        units,
+        bunksResearched: selectedTown?.bunksResearched ?? true,
+        plowResearched: selectedTown?.plowResearched ?? false,
+        hasThermalBaths: selectedTown?.hasThermalBaths ?? false,
+      }),
+    [selectedTown, demolitionTargets, counts, units]
+  );
 
-  // Transport Ship Capacity Logic
-  const bunksResearched = selectedTown?.bunksResearched || false;
-  const TS_CAPACITY = bunksResearched ? 26 : 20;
-  const FTS_CAPACITY = bunksResearched ? 16 : 10;
-
-  const tsUnit = units.find(u => u.name.toLowerCase() === 'transport ship' || u.id === 'slow_transport');
-  const ftsUnit = units.find(u => u.name.toLowerCase().includes('fast transport') || u.id === 'fast_transport');
-
-  const tsCount = tsUnit ? (counts[tsUnit.id] || 0) : 0;
-  const ftsCount = ftsUnit ? (counts[ftsUnit.id] || 0) : 0;
-
-  const currentTransportCapacity = (tsCount * TS_CAPACITY) + (ftsCount * FTS_CAPACITY);
-  
-  // Calculate land troops population to see if transports are enough
-  const landTroopsPopulation = units
-    .filter(u => !u.is_naval && !u.flying)
-    .reduce((sum, u) => sum + (counts[u.id] || 0) * (u.population || 0), 0);
-
-  const transportDeficit = landTroopsPopulation - currentTransportCapacity;
-  const requiredFTS = Math.ceil(landTroopsPopulation / FTS_CAPACITY);
-  const requiredTS = Math.ceil(landTroopsPopulation / TS_CAPACITY);
+  const filteredUnits = useMemo(() => {
+    if (activeCategoryTab === 'ALL') return units;
+    return units.filter(
+      (unit) => classifyTroopCategory(unit) === activeCategoryTab
+    );
+  }, [units, activeCategoryTab]);
 
   const headerBadges = [
     {
@@ -128,16 +167,30 @@ export default function PlannerPage() {
       variant: 'primary',
       mono: true,
     },
-    ...(activePlayer ? [{
-      text: `Player: ${activePlayer.name}`,
-      variant: 'accent',
-      mono: true,
-      dot: true,
-    }] : [])
+    ...(activePlayer
+      ? [
+          {
+            text: `Player: ${activePlayer.name}`,
+            variant: 'accent',
+            mono: true,
+            dot: true,
+          },
+        ]
+      : []),
   ];
 
+  const {
+    maxPopulation,
+    effectiveBuildingPopulation,
+    demolitionSavedPopulation,
+    armyPopulation,
+    freePopulation,
+    combatStats,
+    transportSummary,
+  } = plan;
+
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
       {/* Standardized Hero Header Banner */}
       <PageHeader
         title="City Specialization & Army Planner"
@@ -148,20 +201,28 @@ export default function PlannerPage() {
 
       {loadingTowns ? (
         <Card className="text-center py-12">
-          <p className="text-slate-400 text-sm animate-pulse">Loading Empire Towns...</p>
+          <p className="text-slate-400 text-sm animate-pulse">
+            Loading Empire Towns...
+          </p>
         </Card>
       ) : towns.length > 0 ? (
         <>
           {/* Town Selector Card */}
           <Card className="p-4 bg-slate-900/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <label className="text-sm font-semibold text-slate-300">Select City:</label>
-              <select 
+              <label
+                htmlFor="planner-town-select"
+                className="text-sm font-semibold text-slate-300"
+              >
+                Select City:
+              </label>
+              <select
+                id="planner-town-select"
                 className="input-field max-w-xs font-semibold text-indigo-400 cursor-pointer"
                 value={selectedTownId}
-                onChange={e => setSelectedTownId(e.target.value)}
+                onChange={(e) => setSelectedTownId(e.target.value)}
               >
-                {towns.map(t => (
+                {towns.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name} ({t.points?.toLocaleString()} pts • #{t.islandSlot})
                   </option>
@@ -170,16 +231,21 @@ export default function PlannerPage() {
             </div>
 
             <div className="text-xs text-slate-400 font-mono">
-              Total Empire Cities: <strong className="text-white">{towns.length}</strong>
+              Total Empire Cities:{' '}
+              <strong className="text-white">{towns.length}</strong>
             </div>
           </Card>
 
           {/* City Manager & Demolition Simulator */}
           {selectedTown && (
-            <CityManagerCard 
-              key={selectedTown.id} 
-              townId={selectedTown.id} 
-              initialData={selectedTown} 
+            <CityManagerCard
+              key={selectedTown.id}
+              townId={selectedTown.id}
+              worldId={activeWorldId}
+              initialData={selectedTown}
+              demolitionTargets={demolitionTargets}
+              onTownChange={handleTownChange}
+              onDemolitionTargetsChange={setDemolitionTargets}
             />
           )}
 
@@ -197,7 +263,7 @@ export default function PlannerPage() {
 
               {/* Specialization Quick Presets */}
               <div className="flex flex-wrap gap-2">
-                {Object.entries(PRESETS).map(([key, p]) => (
+                {Object.entries(SPECIALIZATION_PRESETS).map(([key, p]) => (
                   <Button
                     key={key}
                     size="xs"
@@ -205,7 +271,7 @@ export default function PlannerPage() {
                     onClick={() => applyPreset(key)}
                     title={p.desc}
                   >
-                    {key}
+                    {p.label}
                   </Button>
                 ))}
               </div>
@@ -213,74 +279,171 @@ export default function PlannerPage() {
 
             <CardContent>
               {/* Metrics Bar */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
                 <StatCard
-                  label="Used Population"
-                  value={`${usedPopulation} / ${maxPopulation}`}
-                  variant={remainingPopulation < 0 ? 'amber' : 'default'}
+                  label="Free Farm Pop"
+                  value={`${freePopulation} / ${maxPopulation}`}
+                  variant={freePopulation < 0 ? 'amber' : 'emerald'}
+                  icon={Users}
+                />
+                <StatCard
+                  label="Buildings / Army Pop"
+                  value={`${effectiveBuildingPopulation} / ${armyPopulation}`}
+                  variant="default"
                 />
                 <StatCard
                   label="Total Attack Power"
-                  value={totalAttack.toLocaleString()}
+                  value={combatStats.totalAttack.toLocaleString()}
                   variant="amber"
                   icon={Swords}
                 />
                 <StatCard
                   label="Naval / Transport Cap"
-                  value={`${currentTransportCapacity} / ${landTroopsPopulation}`}
-                  variant={transportDeficit > 0 ? 'amber' : 'emerald'}
+                  value={`${transportSummary.transportCapacity} / ${transportSummary.landTroopPopulation}`}
+                  variant={transportSummary.isSufficient ? 'emerald' : 'amber'}
                   icon={Anchor}
                 />
                 <StatCard
                   label="Def (H / P / D)"
-                  value={`${totalDefHack}/${totalDefPierce}/${totalDefDistance}`}
+                  value={`${combatStats.totalDefHack}/${combatStats.totalDefPierce}/${combatStats.totalDefDistance}`}
                   variant="primary"
                   icon={Shield}
                 />
               </div>
 
-              {/* Transport Warning Banner */}
-              {landTroopsPopulation > 0 && transportDeficit > 0 && (
-                <div className="mb-6 p-4 bg-red-950/40 border border-red-800/60 rounded-xl text-xs text-red-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle size={16} className="text-red-400 shrink-0" />
-                    <span>
-                      <strong>Transport Deficit:</strong> You have {landTroopsPopulation} land troop population, but only {currentTransportCapacity} transport capacity ({transportDeficit} unembarked).
-                    </span>
-                  </div>
-                  <div className="font-mono text-white shrink-0">
-                    Need ~<strong>{requiredFTS}</strong> FTS (or <strong>{requiredTS}</strong> TS)
-                  </div>
+              {demolitionSavedPopulation > 0 && (
+                <div className="mb-4 text-xs text-emerald-300 font-mono bg-emerald-950/30 border border-emerald-800/50 rounded-xl px-3.5 py-2">
+                  Demolition Reclaim Active: +{demolitionSavedPopulation} farm population reclaimed from building targets.
                 </div>
               )}
 
-              {/* Unit Inputs Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                {units.map(unit => {
-                  const count = counts[unit.id] || 0;
-                  return (
-                    <div key={unit.id} className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-                      <div className="mb-2">
-                        <div className="text-xs font-bold text-slate-200 truncate" title={unit.name}>
-                          {unit.name}
-                        </div>
-                        <div className="text-[11px] text-slate-400 font-mono">
-                          Pop: {unit.population} • Att: {unit.attack || 0}
-                        </div>
-                      </div>
-
-                      <input
-                        type="number"
-                        min="0"
-                        value={count === 0 ? '' : count}
-                        placeholder="0"
-                        onChange={e => handleCountChange(unit.id, e.target.value)}
-                        className="input-field text-center font-mono font-bold text-sm bg-slate-900 py-1"
+              {/* Transport Warning Banner */}
+              {transportSummary.landTroopPopulation > 0 &&
+                !transportSummary.isSufficient && (
+                  <div className="mb-6 p-4 bg-red-950/40 border border-red-800/60 rounded-xl text-xs text-red-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle
+                        size={16}
+                        className="text-red-400 shrink-0"
                       />
+                      <span>
+                        <strong>Transport Deficit:</strong> You have{' '}
+                        {transportSummary.landTroopPopulation} land troop
+                        population, but only{' '}
+                        {transportSummary.transportCapacity} transport capacity
+                        ({transportSummary.transportDeficit} unembarked).
+                      </span>
                     </div>
-                  );
-                })}
+                    <div className="font-mono text-white shrink-0">
+                      Need +<strong>{transportSummary.fastTransportsNeeded}</strong>{' '}
+                      FTS (or +<strong>{transportSummary.slowTransportsNeeded}</strong>{' '}
+                      TS)
+                    </div>
+                  </div>
+                )}
+
+              {/* Filterable Troop Category Tabs */}
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800"
+                role="tablist"
+                aria-label="Troop Categories"
+              >
+                <div className="flex flex-wrap gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  {TROOP_TABS.map((tab) => {
+                    const isActive = activeCategoryTab === tab.id;
+                    return (
+                      <Button
+                        key={tab.id}
+                        size="xs"
+                        role="tab"
+                        aria-selected={isActive}
+                        variant={isActive ? 'primary' : 'ghost'}
+                        onClick={() => setActiveCategoryTab(tab.id)}
+                      >
+                        {tab.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setCounts({})}
+                >
+                  Clear Army
+                </Button>
               </div>
+
+              {/* Unit Inputs Grid */}
+              {loadingUnits ? (
+                <div className="text-center py-6 text-xs text-slate-400 animate-pulse">
+                  Loading troop catalog...
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {filteredUnits.map((unit) => {
+                    const count = counts[unit.id] || 0;
+                    const inputId = `unit-input-${unit.id}`;
+                    const category = classifyTroopCategory(unit);
+                    const defHack = unit.def_hack ?? unit.defHack ?? 0;
+                    const defPierce = unit.def_pierce ?? unit.defPierce ?? 0;
+                    const defDist = unit.def_distance ?? unit.defDistance ?? 0;
+
+                    return (
+                      <div
+                        key={unit.id}
+                        className="bg-slate-950/50 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between gap-2"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <label
+                              htmlFor={inputId}
+                              className="text-xs font-bold text-slate-200 truncate cursor-pointer"
+                              title={unit.name}
+                            >
+                              {unit.name}
+                            </label>
+                            <Badge
+                              size="sm"
+                              variant={
+                                category === 'NAVAL'
+                                  ? 'primary'
+                                  : category === 'MYTHIC'
+                                  ? 'accent'
+                                  : 'neutral'
+                              }
+                            >
+                              {category}
+                            </Badge>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono flex flex-wrap gap-1.5">
+                            <span>Pop: {unit.population}</span>
+                            <span className="text-amber-400">
+                              Att: {unit.attack || 0}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            Def: {defHack}/{defPierce}/{defDist}
+                          </div>
+                        </div>
+
+                        <input
+                          id={inputId}
+                          type="number"
+                          min="0"
+                          value={count === 0 ? '' : count}
+                          placeholder="0"
+                          onChange={(e) =>
+                            handleCountChange(unit.id, e.target.value)
+                          }
+                          className="input-field text-center font-mono font-bold text-sm bg-slate-900 py-1"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </>
@@ -288,7 +451,9 @@ export default function PlannerPage() {
         <EmptyState
           icon={User}
           title="No Towns Found"
-          description={`No towns found for active player in world ${activeWorldId?.toUpperCase() || ''}. Make sure world data is synchronized or select an active player with towns.`}
+          description={`No towns found for active player in world ${
+            activeWorldId?.toUpperCase() || ''
+          }. Make sure world data is synchronized or select an active player with towns.`}
         />
       )}
     </div>

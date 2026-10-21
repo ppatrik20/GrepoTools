@@ -59,18 +59,70 @@ export const TownVerificationEngine = {
     const verifiedMembers = [];
     const verifiedTowns = [];
 
-    for (const member of unverifiedMembers) {
-      if (!member.verificationCode || !member.playerId) continue;
+    // Batch-fetch candidate towns when findMany is available to eliminate N+1 queries
+    const hasBatchTownQuery = typeof prismaClient.town?.findMany === 'function';
+    let candidateTowns = [];
 
-      const matchingTown = await prismaClient.town.findFirst({
-        where: {
-          worldId: member.worldId,
-          playerId: member.playerId,
-          name: {
-            contains: member.verificationCode
+    if (hasBatchTownQuery) {
+      const targetTownIds = Array.from(
+        new Set(unverifiedMembers.map(m => m.targetTownId).filter(Boolean))
+      );
+      const candidatePlayerIds = Array.from(
+        new Set(unverifiedMembers.map(m => m.playerId).filter(Boolean))
+      );
+      const candidateWorldIds = Array.from(
+        new Set(unverifiedMembers.map(m => m.worldId).filter(Boolean))
+      );
+      const resolvedWorldFilter = worldId
+        ? { worldId }
+        : candidateWorldIds.length === 1
+          ? { worldId: candidateWorldIds[0] }
+          : candidateWorldIds.length > 1
+            ? { worldId: { in: candidateWorldIds } }
+            : {};
+
+      if (targetTownIds.length > 0 && candidatePlayerIds.length === 0) {
+        candidateTowns = await prismaClient.town.findMany({
+          where: {
+            ...resolvedWorldFilter,
+            id: { in: targetTownIds }
+          },
+          select: { id: true, name: true, points: true, worldId: true, playerId: true }
+        });
+      } else if (candidatePlayerIds.length > 0) {
+        candidateTowns = await prismaClient.town.findMany({
+          where: {
+            ...resolvedWorldFilter,
+            ...(targetTownIds.length > 0 ? { id: { in: targetTownIds } } : {}),
+            playerId: { in: candidatePlayerIds }
+          },
+          select: { id: true, name: true, points: true, worldId: true, playerId: true }
+        });
+      }
+    }
+
+    for (const member of unverifiedMembers) {
+      if (!member.verificationCode || (!member.playerId && !member.targetTownId)) continue;
+
+      let matchingTown = null;
+      if (hasBatchTownQuery) {
+        matchingTown = candidateTowns.find(t => {
+          if (member.worldId && t.worldId && t.worldId !== member.worldId) return false;
+          if (member.targetTownId && t.id !== member.targetTownId) return false;
+          if (member.playerId && t.playerId !== undefined && t.playerId !== member.playerId) return false;
+          return this.isTownVerificationMatch(t.name, member.verificationCode);
+        }) || null;
+      } else if (typeof prismaClient.town?.findFirst === 'function') {
+        matchingTown = await prismaClient.town.findFirst({
+          where: {
+            worldId: member.worldId,
+            playerId: member.playerId,
+            name: {
+              contains: member.verificationCode
+            }
           }
-        }
-      });
+        });
+      }
 
       if (matchingTown) {
         const verifiedAt = new Date();
@@ -118,5 +170,22 @@ export const TownVerificationEngine = {
     }
 
     return { verifiedCount, verifiedMembers, verifiedTowns };
+  },
+
+  /**
+   * Alias for background world sync town verification scanning.
+   */
+  async scanWorldForVerifiedTowns(worldIdOrParams, prismaClient = defaultPrisma) {
+    if (typeof worldIdOrParams === 'string') {
+      return this.executeTownVerificationCheck({
+        worldId: worldIdOrParams,
+        prismaClient,
+        method: 'SYNC_AUTOMATIC'
+      });
+    }
+    return this.executeTownVerificationCheck({
+      prismaClient,
+      ...(worldIdOrParams || {})
+    });
   }
 };

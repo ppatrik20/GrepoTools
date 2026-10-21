@@ -286,6 +286,10 @@ model Conquest {
   world         World?   @relation(fields: [worldId], references: [id], onDelete: Cascade)
 
   @@index([worldId, timestamp])
+  @@index([worldId, newPlayerId])
+  @@index([worldId, oldPlayerId])
+  @@index([worldId, newAllianceId])
+  @@index([worldId, oldAllianceId])
   @@index([townId])
 }
 

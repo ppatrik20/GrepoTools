@@ -8,8 +8,13 @@ import {
   setAuthCookies,
   clearAuthCookies
 } from '@/lib/auth/tokens';
-import { logAuditEvent } from '@/lib/auth/audit';
-import { extractClientIp, extractUserAgent, buildTeamMembershipPayload } from '@/lib/auth/rbac';
+import { logAuditEvent, AUDIT_ACTIONS } from '@/lib/auth/audit';
+import {
+  extractClientIp,
+  extractUserAgent,
+  TEAM_MEMBERSHIP_INCLUDE,
+  buildTeamMembershipPayload
+} from '@/lib/auth/rbac';
 
 export async function POST(request) {
   const ipAddress = extractClientIp(request);
@@ -44,14 +49,7 @@ export async function POST(request) {
           user: {
             include: {
               teamMemberships: {
-                include: {
-                  team: true,
-                  customRoles: {
-                    include: {
-                      customRole: true
-                    }
-                  }
-                }
+                include: TEAM_MEMBERSHIP_INCLUDE
               }
             }
           }
@@ -140,7 +138,7 @@ export async function POST(request) {
         await logAuditEvent({
           userId: rotateResult.userId,
           actorUsername: rotateResult.username,
-          action: 'AUTH_TOKEN_REUSE_DETECTED',
+          action: AUDIT_ACTIONS.AUTH_TOKEN_REUSE_DETECTED,
           targetResource: `family:${rotateResult.familyId}`,
           ipAddress,
           userAgent,
@@ -172,7 +170,7 @@ export async function POST(request) {
     await logAuditEvent({
       userId: user.id,
       actorUsername: user.username,
-      action: 'AUTH_TOKEN_ROTATED',
+      action: AUDIT_ACTIONS.AUTH_TOKEN_ROTATED,
       targetResource: `user:${user.id}`,
       ipAddress,
       userAgent,

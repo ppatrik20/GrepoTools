@@ -16,13 +16,19 @@ export const TeamOperationsAdapter = {
    * @param {Function} [params.fetchImpl=fetch]
    * @returns {Promise<object>} { team, members, customRoles, invites }
    */
-  async loadTeamBundle({
-    teamId,
-    activeWorldId,
-    isGlobalAdmin = false,
-    canManageInvites = false,
-    fetchImpl = fetch
-  }) {
+  async loadTeamBundle(teamIdOrParams, options = {}) {
+    const params = typeof teamIdOrParams === 'string'
+      ? { teamId: teamIdOrParams, ...(options || {}) }
+      : (teamIdOrParams || {});
+
+    const {
+      teamId,
+      activeWorldId,
+      isGlobalAdmin = false,
+      canManageInvites = false,
+      fetchImpl = fetch
+    } = params;
+
     let resolvedTeamId = teamId;
 
     if (!resolvedTeamId) {
@@ -42,41 +48,76 @@ export const TeamOperationsAdapter = {
       }
     }
 
-    const fetchCalls = [
-      fetchImpl(`/api/teams/${resolvedTeamId}`),
-      fetchImpl(`/api/teams/${resolvedTeamId}/members`),
-      fetchImpl(`/api/teams/${resolvedTeamId}/roles`)
-    ];
-
-    if (canManageInvites) {
-      fetchCalls.push(fetchImpl(`/api/teams/${resolvedTeamId}/invites`));
-    }
-
-    const results = await Promise.all(fetchCalls);
-    const [teamRes, membersRes, rolesRes, invitesRes] = results;
-
-    const [teamData, membersData, rolesData] = await Promise.all([
-      teamRes.json(),
-      membersRes.json(),
-      rolesRes.json()
-    ]);
+    const encodedTeamId = encodeURIComponent(resolvedTeamId);
+    const teamRes = await fetchImpl(`/api/teams/${encodedTeamId}`);
+    const teamData = await teamRes.json();
 
     if (!teamRes.ok) {
       throw new Error(teamData.error || 'Failed to load team data');
     }
 
-    let invites = [];
+    const teamObj = teamData.team || null;
+    const bundledMembers = Array.isArray(teamData.members)
+      ? teamData.members
+      : Array.isArray(teamObj?.members)
+        ? teamObj.members
+        : null;
+    const bundledRoles = Array.isArray(teamData.customRoles)
+      ? teamData.customRoles
+      : Array.isArray(teamData.roles)
+        ? teamData.roles
+        : Array.isArray(teamObj?.customRoles)
+          ? teamObj.customRoles
+          : null;
+    const bundledInvites = Array.isArray(teamData.invites)
+      ? teamData.invites
+      : Array.isArray(teamObj?.invites)
+        ? teamObj.invites
+        : null;
+
+    if (
+      Array.isArray(bundledMembers) &&
+      Array.isArray(bundledRoles) &&
+      (Array.isArray(bundledInvites) || !canManageInvites)
+    ) {
+      return {
+        team: teamObj,
+        members: bundledMembers,
+        customRoles: bundledRoles,
+        invites: Array.isArray(bundledInvites) ? bundledInvites : []
+      };
+    }
+
+    // Fallback for test fixtures that only return partial team metadata on GET /api/teams/[id]
+    const fetchCalls = [
+      Array.isArray(bundledMembers)
+        ? Promise.resolve({ ok: true, json: async () => ({ members: bundledMembers }) })
+        : fetchImpl(`/api/teams/${encodedTeamId}/members`),
+      Array.isArray(bundledRoles)
+        ? Promise.resolve({ ok: true, json: async () => ({ roles: bundledRoles }) })
+        : fetchImpl(`/api/teams/${encodedTeamId}/roles`)
+    ];
+
+    if (canManageInvites && !Array.isArray(bundledInvites)) {
+      fetchCalls.push(fetchImpl(`/api/teams/${encodedTeamId}/invites`));
+    }
+
+    const [membersRes, rolesRes, invitesRes] = await Promise.all(fetchCalls);
+    const [membersData, rolesData] = await Promise.all([
+      membersRes.json(),
+      rolesRes.json()
+    ]);
+
+    let invites = Array.isArray(bundledInvites) ? bundledInvites : [];
     if (invitesRes && invitesRes.ok) {
       const invitesData = await invitesRes.json();
       if (Array.isArray(invitesData.invites)) {
         invites = invitesData.invites;
       }
-    } else if (Array.isArray(teamData.team?.invites)) {
-      invites = teamData.team.invites;
     }
 
     return {
-      team: teamData.team || null,
+      team: teamObj,
       members: Array.isArray(membersData.members) ? membersData.members : [],
       customRoles: Array.isArray(rolesData.roles) ? rolesData.roles : [],
       invites

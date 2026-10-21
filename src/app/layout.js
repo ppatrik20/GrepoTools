@@ -25,10 +25,10 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${outfit.variable} ${jetbrainsMono.variable}`}>
-      <body className={`${outfit.className} antialiased`}>
+      <body className={`${outfit.className} antialiased min-h-screen flex flex-col`}>
         <AppContextProvider>
           <Navigation />
-          <main className="container">
+          <main className="flex-1 flex flex-col relative w-full overflow-x-hidden">
             {children}
           </main>
         </AppContextProvider>

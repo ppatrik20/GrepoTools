@@ -206,5 +206,498 @@ export const WorldOperationsAdapter = {
       throw new Error(data.error || 'Failed to fetch sync logs');
     }
     return data.logs || [];
+  },
+
+  /**
+   * Fetches intelligence details for a town, player, alliance, or island and normalizes
+   * common display fields while preserving raw response fields.
+   *
+   * @param {object} [params]
+   * @param {string} [params.worldId='hu119']
+   * @param {'town'|'player'|'alliance'|'island'} params.type
+   * @param {string|number} [params.id]
+   * @param {string|number} [params.x]
+   * @param {string|number} [params.y]
+   * @param {Function} [params.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async fetchEntityIntel({
+    worldId = 'hu119',
+    type,
+    id,
+    x,
+    y,
+    fetchImpl = fetch
+  } = {}) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const normalizedType = String(type || '').toLowerCase().trim();
+
+    if (!['town', 'player', 'alliance', 'island'].includes(normalizedType)) {
+      throw new Error(`Unsupported entity type: ${type}`);
+    }
+
+    let url;
+    if (normalizedType === 'island') {
+      const params = new URLSearchParams({ world: normalizedWorld });
+      if (x !== undefined && x !== null && y !== undefined && y !== null) {
+        params.set('x', String(x));
+        params.set('y', String(y));
+      }
+      if (id !== undefined && id !== null && id !== '') {
+        params.set('id', String(id));
+      }
+      url = `/api/world/island?${params.toString()}`;
+    } else {
+      if (id === undefined || id === null || id === '') {
+        throw new Error(`Entity id is required for ${normalizedType} intelligence`);
+      }
+      url = `/api/world/${normalizedType}/${encodeURIComponent(id)}?world=${encodeURIComponent(normalizedWorld)}`;
+    }
+
+    const res = await fetchImpl(url);
+    const raw = await res.json();
+
+    if (!res.ok || raw?.error || raw?.success === false) {
+      throw new Error(raw?.error || `Failed to fetch ${normalizedType} intelligence`);
+    }
+
+    const entityData =
+      normalizedType === 'town'
+        ? raw.town || raw
+        : normalizedType === 'player'
+        ? raw.player || raw
+        : normalizedType === 'alliance'
+        ? raw.alliance || raw
+        : raw.island || raw;
+
+    const towns = Array.isArray(raw.towns)
+      ? raw.towns
+      : Array.isArray(entityData?.towns)
+      ? entityData.towns
+      : [];
+
+    const members = Array.isArray(raw.members)
+      ? raw.members
+      : Array.isArray(entityData?.members)
+      ? entityData.members
+      : [];
+
+    const conquests = Array.isArray(raw.conquests)
+      ? raw.conquests
+      : Array.isArray(entityData?.conquests)
+      ? entityData.conquests
+      : [];
+
+    const history = Array.isArray(raw.history)
+      ? raw.history
+      : Array.isArray(entityData?.history)
+      ? entityData.history
+      : [];
+
+    let displayName = entityData?.name || '';
+    if (!displayName) {
+      if (normalizedType === 'island') {
+        const coordX = x ?? entityData?.x;
+        const coordY = y ?? entityData?.y;
+        displayName =
+          coordX !== undefined && coordY !== undefined
+            ? `Island (${coordX}, ${coordY})`
+            : `Island #${id ?? entityData?.id ?? ''}`;
+      } else {
+        const capType = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+        displayName = `${capType} #${entityData?.id ?? id}`;
+      }
+    }
+
+    let allianceName = null;
+    if (normalizedType === 'alliance') {
+      allianceName = entityData?.name || null;
+    } else if (normalizedType === 'player') {
+      allianceName =
+        (typeof entityData?.alliance === 'string'
+          ? entityData.alliance
+          : entityData?.alliance?.name) || null;
+    } else if (normalizedType === 'town') {
+      allianceName =
+        (typeof entityData?.alliance === 'string'
+          ? entityData.alliance
+          : entityData?.alliance?.name) ||
+        (typeof entityData?.player === 'object' ? entityData?.player?.alliance?.name : null) ||
+        null;
+    }
+
+    const points =
+      normalizedType === 'island'
+        ? towns.reduce((sum, t) => sum + Number(t?.points || 0), 0)
+        : Number(entityData?.points ?? raw?.points ?? 0);
+
+    return {
+      ...raw,
+      entityType: normalizedType,
+      entityData,
+      displayName,
+      allianceName,
+      points,
+      conquests,
+      towns,
+      members,
+      history
+    };
+  },
+
+  /**
+   * Fetches the world scoreboard rankings, momentum charts, and recent conquests.
+   *
+   * @param {string} [worldId='hu119']
+   * @param {object} [options]
+   * @param {Function} [options.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async fetchScoreboardData(worldId = 'hu119', { fetchImpl = fetch } = {}) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const res = await fetchImpl(`/api/world/scoreboard?world=${encodeURIComponent(normalizedWorld)}`);
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || `Failed to fetch scoreboard for world ${normalizedWorld}`);
+    }
+
+    return data;
+  },
+
+  /**
+   * Fetches momentum and trend data for players or alliances.
+   *
+   * @param {object} [params]
+   * @param {string} [params.worldId='hu119']
+   * @param {number} [params.windowHours=24]
+   * @param {Array<string|number>} [params.playerIds=[]]
+   * @param {Array<string|number>} [params.allianceIds=[]]
+   * @param {Array<string|number>} [params.ids=[]]
+   * @param {string} [params.search='']
+   * @param {string} [params.type='']
+   * @param {Function} [params.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async fetchMomentumData({
+    worldId = 'hu119',
+    windowHours = 24,
+    playerIds = [],
+    allianceIds = [],
+    ids = [],
+    search = '',
+    type = '',
+    fetchImpl = fetch
+  } = {}) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const params = new URLSearchParams({ world: normalizedWorld });
+
+    if (windowHours !== undefined && windowHours !== null) {
+      params.set('windowHours', String(windowHours));
+    }
+
+    let resolvedType = type ? String(type).toLowerCase().trim() : '';
+    if (!resolvedType) {
+      if (Array.isArray(allianceIds) && allianceIds.length > 0 && (!playerIds || playerIds.length === 0)) {
+        resolvedType = 'alliance';
+      } else if (Array.isArray(playerIds) && playerIds.length > 0 && (!allianceIds || allianceIds.length === 0)) {
+        resolvedType = 'player';
+      }
+    }
+    if (resolvedType) {
+      params.set('type', resolvedType);
+    }
+
+    if (Array.isArray(playerIds) && playerIds.length > 0) {
+      params.set('playerIds', playerIds.join(','));
+    }
+    if (Array.isArray(allianceIds) && allianceIds.length > 0) {
+      params.set('allianceIds', allianceIds.join(','));
+    }
+
+    const combinedIds =
+      Array.isArray(ids) && ids.length > 0
+        ? ids
+        : resolvedType === 'alliance' && Array.isArray(allianceIds) && allianceIds.length > 0
+        ? allianceIds
+        : Array.isArray(playerIds) && playerIds.length > 0
+        ? playerIds
+        : Array.isArray(allianceIds) && allianceIds.length > 0
+        ? allianceIds
+        : [];
+
+    if (combinedIds.length > 0) {
+      params.set('ids', combinedIds.join(','));
+    }
+
+    if (search && String(search).trim()) {
+      params.set('q', String(search).trim());
+    }
+
+    const res = await fetchImpl(`/api/world/momentum?${params.toString()}`);
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || `Failed to fetch momentum data for world ${normalizedWorld}`);
+    }
+
+    return {
+      ...data,
+      results: Array.isArray(data?.results) ? data.results : []
+    };
+  },
+
+  /**
+   * Searches world entities (players, alliances, towns) by query string.
+   *
+   * @param {object} [params]
+   * @param {string} [params.worldId='hu119']
+   * @param {string} [params.query='']
+   * @param {string} [params.type='']
+   * @param {AbortSignal} [params.signal]
+   * @param {Function} [params.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async searchWorldEntities({
+    worldId = 'hu119',
+    query = '',
+    type = '',
+    signal,
+    fetchImpl = fetch
+  } = {}) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const params = new URLSearchParams({
+      world: normalizedWorld,
+      q: String(query || '').trim()
+    });
+    if (type) {
+      params.set('type', String(type).toLowerCase().trim());
+    }
+
+    const options = signal ? { signal } : undefined;
+    const res = await fetchImpl(`/api/world/search?${params.toString()}`, options);
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || 'Failed to search world entities');
+    }
+
+    return {
+      ...data,
+      players: Array.isArray(data?.players) ? data.players : [],
+      alliances: Array.isArray(data?.alliances) ? data.alliances : [],
+      towns: Array.isArray(data?.towns) ? data.towns : []
+    };
+  },
+
+  /**
+   * Fetches hourly point/BP delta history for a player or alliance.
+   *
+   * @param {object} [params]
+   * @param {string} [params.worldId='hu119']
+   * @param {'player'|'alliance'} [params.type='player']
+   * @param {string|number} params.id
+   * @param {Function} [params.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async fetchHourlyHistory({
+    worldId = 'hu119',
+    type = 'player',
+    id,
+    fetchImpl = fetch
+  } = {}) {
+    if (id === undefined || id === null || id === '') {
+      throw new Error('Entity id is required for hourly history');
+    }
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const normalizedType = String(type || 'player').toLowerCase().trim();
+    const params = new URLSearchParams({
+      world: normalizedWorld,
+      type: normalizedType,
+      id: String(id)
+    });
+
+    const res = await fetchImpl(`/api/world/history/hourly?${params.toString()}`);
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || 'Failed to fetch hourly history');
+    }
+
+    return {
+      ...data,
+      history: Array.isArray(data?.history) ? data.history : []
+    };
+  },
+
+  /**
+   * Loads pinned players and alliances for a given world from storage.
+   *
+   * @param {string} [worldId='hu119']
+   * @param {object} [options]
+   * @param {Storage|null} [options.storage]
+   * @returns {{ pinnedPlayers: Array, pinnedAlliances: Array }}
+   */
+  loadPinnedEntities(
+    worldId = 'hu119',
+    { storage = typeof window !== 'undefined' ? window.localStorage : null } = {}
+  ) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    if (!storage) {
+      return { pinnedPlayers: [], pinnedAlliances: [] };
+    }
+
+    let pinnedPlayers = [];
+    let pinnedAlliances = [];
+    try {
+      const rawPlayers =
+        storage.getItem(`grepoPinnedPlayers_${normalizedWorld}`) ??
+        storage.getItem('grepoPinnedPlayers');
+      const rawAlliances =
+        storage.getItem(`grepoPinnedAlliances_${normalizedWorld}`) ??
+        storage.getItem('grepoPinnedAlliances');
+
+      if (rawPlayers) {
+        const parsed = JSON.parse(rawPlayers);
+        if (Array.isArray(parsed)) pinnedPlayers = parsed;
+      }
+      if (rawAlliances) {
+        const parsed = JSON.parse(rawAlliances);
+        if (Array.isArray(parsed)) pinnedAlliances = parsed;
+      }
+    } catch {
+      // Ignore storage read/parse errors and return safe defaults
+    }
+
+    return { pinnedPlayers, pinnedAlliances };
+  },
+
+  /**
+   * Saves pinned players and alliances for a given world to storage.
+   *
+   * @param {string} [worldId='hu119']
+   * @param {object} [entities]
+   * @param {Array} [entities.pinnedPlayers=[]]
+   * @param {Array} [entities.pinnedAlliances=[]]
+   * @param {object} [options]
+   * @param {Storage|null} [options.storage]
+   * @returns {{ pinnedPlayers: Array, pinnedAlliances: Array }}
+   */
+  savePinnedEntities(
+    worldId = 'hu119',
+    { pinnedPlayers = [], pinnedAlliances = [] } = {},
+    { storage = typeof window !== 'undefined' ? window.localStorage : null } = {}
+  ) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const safePlayers = Array.isArray(pinnedPlayers) ? pinnedPlayers : [];
+    const safeAlliances = Array.isArray(pinnedAlliances) ? pinnedAlliances : [];
+
+    if (storage) {
+      try {
+        storage.setItem(`grepoPinnedPlayers_${normalizedWorld}`, JSON.stringify(safePlayers));
+        storage.setItem(`grepoPinnedAlliances_${normalizedWorld}`, JSON.stringify(safeAlliances));
+      } catch {
+        // Ignore quota / storage errors
+      }
+    }
+
+    return { pinnedPlayers: safePlayers, pinnedAlliances: safeAlliances };
+  },
+
+  /**
+   * Fetches the town roster and configurations for a world/player.
+   *
+   * @param {object} [params]
+   * @param {string} [params.worldId='hu119']
+   * @param {string|number} [params.playerId]
+   * @param {Function} [params.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async fetchTownRoster({ worldId = 'hu119', playerId, fetchImpl = fetch } = {}) {
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const params = new URLSearchParams({ world: normalizedWorld, worldId: normalizedWorld });
+    if (playerId !== undefined && playerId !== null && playerId !== '') {
+      params.set('playerId', String(playerId));
+    }
+
+    const res = await fetchImpl(`/api/towns?${params.toString()}`);
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || 'Failed to fetch town roster');
+    }
+
+    return data;
+  },
+
+  /**
+   * Saves a town's building/research/specialization configuration (always scoped with worldId).
+   *
+   * @param {object} [params]
+   * @param {string} [params.worldId='hu119']
+   * @param {string|number} params.townId
+   * @param {string} [params.specialization]
+   * @param {object} [params.buildings]
+   * @param {boolean} [params.plowResearched]
+   * @param {boolean} [params.hasThermalBaths]
+   * @param {boolean} [params.bunksResearched]
+   * @param {Function} [params.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async saveTownConfiguration({
+    worldId = 'hu119',
+    townId,
+    specialization,
+    buildings,
+    plowResearched,
+    hasThermalBaths,
+    bunksResearched,
+    fetchImpl = fetch
+  } = {}) {
+    if (townId === undefined || townId === null || townId === '') {
+      throw new Error('townId is required to save town configuration');
+    }
+
+    const normalizedWorld = String(worldId || 'hu119').toLowerCase().trim();
+    const payload = {
+      worldId: normalizedWorld,
+      townId,
+      ...(specialization !== undefined ? { specialization } : {}),
+      ...(buildings !== undefined ? { buildings } : {}),
+      ...(plowResearched !== undefined ? { plowResearched } : {}),
+      ...(hasThermalBaths !== undefined ? { hasThermalBaths } : {}),
+      ...(bunksResearched !== undefined ? { bunksResearched } : {})
+    };
+
+    const res = await fetchImpl('/api/towns', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || 'Failed to save town configuration');
+    }
+
+    return data;
+  },
+
+  /**
+   * Fetches the static Grepolis troop and ship catalog.
+   *
+   * @param {object} [options]
+   * @param {Function} [options.fetchImpl=fetch]
+   * @returns {Promise<object>}
+   */
+  async fetchTroopCatalog({ fetchImpl = fetch } = {}) {
+    const res = await fetchImpl('/api/units');
+    const data = await res.json();
+
+    if (!res.ok || data?.error || data?.success === false) {
+      throw new Error(data?.error || 'Failed to fetch troop catalog');
+    }
+
+    return data;
   }
 };

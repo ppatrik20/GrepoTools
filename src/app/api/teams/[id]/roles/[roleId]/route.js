@@ -1,44 +1,23 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, hasPermission, PERMISSIONS, ALL_PERMISSIONS } from '@/lib/auth/rbac';
+import {
+  requireTeamAccess,
+  PERMISSIONS,
+  ALL_PERMISSIONS,
+  AUDIT_ACTIONS
+} from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 
 export async function PUT(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId, roleId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: { members: true }
+    const access = await requireTeamAccess(request, teamId, {
+      requiredPermission: PERMISSIONS.ROLES_MANAGE
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
-    }
-
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const callerMember = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !callerMember) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = callerMember?.role === 'TEAM_ADMIN';
-    const canManageRoles = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.ROLES_MANAGE);
-
-    if (!canManageRoles) {
-      return NextResponse.json(
-        { error: 'Forbidden: Team Administrator or ROLES_MANAGE capability required' },
-        { status: 403 }
-      );
+    if (!access.authorized) {
+      return access.response;
     }
 
     const existingRole = await prisma.teamCustomRole.findFirst({
@@ -119,12 +98,12 @@ export async function PUT(request, { params }) {
     });
 
     await logAuditEvent({
-      userId: auth.user.sub,
-      actorUsername: auth.user.username,
-      action: 'CUSTOM_ROLE_UPDATED',
+      userId: access.user.sub,
+      actorUsername: access.user.username,
+      action: AUDIT_ACTIONS.CUSTOM_ROLE_UPDATED,
       targetResource: `team:${teamId}:role:${roleId}`,
-      ipAddress: auth.ipAddress,
-      userAgent: auth.userAgent,
+      ipAddress: access.ipAddress,
+      userAgent: access.userAgent,
       status: 'SUCCESS',
       details: {
         roleId,
@@ -149,41 +128,15 @@ export async function PUT(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId, roleId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: { members: true }
+    const access = await requireTeamAccess(request, teamId, {
+      requiredPermission: PERMISSIONS.ROLES_MANAGE
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
-    }
-
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const callerMember = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !callerMember) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = callerMember?.role === 'TEAM_ADMIN';
-    const canManageRoles = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.ROLES_MANAGE);
-
-    if (!canManageRoles) {
-      return NextResponse.json(
-        { error: 'Forbidden: Team Administrator or ROLES_MANAGE capability required' },
-        { status: 403 }
-      );
+    if (!access.authorized) {
+      return access.response;
     }
 
     const existingRole = await prisma.teamCustomRole.findFirst({
@@ -207,12 +160,12 @@ export async function DELETE(request, { params }) {
     });
 
     await logAuditEvent({
-      userId: auth.user.sub,
-      actorUsername: auth.user.username,
-      action: 'CUSTOM_ROLE_DELETED',
+      userId: access.user.sub,
+      actorUsername: access.user.username,
+      action: AUDIT_ACTIONS.CUSTOM_ROLE_DELETED,
       targetResource: `team:${teamId}:role:${roleId}`,
-      ipAddress: auth.ipAddress,
-      userAgent: auth.userAgent,
+      ipAddress: access.ipAddress,
+      userAgent: access.userAgent,
       status: 'SUCCESS',
       details: {
         roleId,

@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, buildTeamMembershipPayload } from '@/lib/auth/rbac';
+import {
+  requireAuth,
+  TEAM_MEMBERSHIP_INCLUDE,
+  buildTeamMembershipPayload
+} from '@/lib/auth/rbac';
 import { generateAccessToken, setAuthCookies } from '@/lib/auth/tokens';
 import { logAuditEvent, AUDIT_ACTIONS } from '@/lib/auth/audit';
 import { TownVerificationEngine } from '@/lib/auth/TownVerificationEngine';
@@ -63,14 +67,7 @@ export async function POST(request) {
       // Re-query all memberships to generate updated access token
       const updatedMemberships = await prisma.teamMember.findMany({
         where: { userId: user.sub },
-        include: {
-          team: true,
-          customRoles: {
-            include: {
-              customRole: true
-            }
-          }
-        }
+        include: TEAM_MEMBERSHIP_INCLUDE
       });
 
       const teams = buildTeamMembershipPayload(updatedMemberships);
@@ -99,7 +96,7 @@ export async function POST(request) {
     await logAuditEvent({
       userId: user.sub,
       actorUsername: user.username,
-      action: 'TOWN_VERIFICATION_CHECK_FAILED',
+      action: AUDIT_ACTIONS.TOWN_VERIFICATION_CHECK_FAILED,
       targetResource: `user:${user.sub}`,
       ipAddress,
       userAgent,

@@ -233,6 +233,194 @@ export const WorldSyncPipeline = {
   },
 
   /**
+   * Executes atomic persistence of computed entity deltas, history rows, and conquests.
+   */
+  async persistWorldDeltas(
+    { worldId, allianceDeltas, playerDeltas, townDeltas, islandDeltas, newConquers = [] },
+    prismaClient = defaultPrisma
+  ) {
+    const tx = [];
+
+    // Unlink orphaned foreign keys
+    if (allianceDeltas.toDelete.length > 0) {
+      tx.push(prismaClient.player.updateMany({
+        where: { worldId, allianceId: { in: allianceDeltas.toDelete } },
+        data: { allianceId: null }
+      }));
+    }
+
+    if (playerDeltas.toDelete.length > 0) {
+      tx.push(prismaClient.town.updateMany({
+        where: { worldId, playerId: { in: playerDeltas.toDelete } },
+        data: { playerId: null }
+      }));
+    }
+
+    // Removals
+    if (townDeltas.toDelete.length > 0) {
+      tx.push(prismaClient.town.deleteMany({ where: { worldId, id: { in: townDeltas.toDelete } } }));
+    }
+    if (playerDeltas.toDelete.length > 0) {
+      tx.push(prismaClient.player.deleteMany({ where: { worldId, id: { in: playerDeltas.toDelete } } }));
+    }
+    if (allianceDeltas.toDelete.length > 0) {
+      tx.push(prismaClient.alliance.deleteMany({ where: { worldId, id: { in: allianceDeltas.toDelete } } }));
+    }
+    if (islandDeltas.toDelete.length > 0) {
+      tx.push(prismaClient.island.deleteMany({ where: { worldId, id: { in: islandDeltas.toDelete } } }));
+    }
+
+    // Inserts
+    if (allianceDeltas.toCreate.length > 0) {
+      chunkArray(allianceDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
+        tx.push(prismaClient.alliance.createMany({ data: chunk }));
+      });
+    }
+    if (playerDeltas.toCreate.length > 0) {
+      chunkArray(playerDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
+        tx.push(prismaClient.player.createMany({ data: chunk }));
+      });
+    }
+    if (townDeltas.toCreate.length > 0) {
+      chunkArray(townDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
+        tx.push(prismaClient.town.createMany({ data: chunk }));
+      });
+    }
+    if (islandDeltas.toCreate.length > 0) {
+      chunkArray(islandDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
+        tx.push(prismaClient.island.createMany({ data: chunk }));
+      });
+    }
+
+    // Chunked Updates
+    if (allianceDeltas.toUpdate.length > 0) {
+      chunkArray(allianceDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
+        const values = chunk.map(a =>
+          `(${sanitizeInt(a.id)}, '${worldId}', ${escapeSqlString(a.name)}, ${sanitizeInt(a.points)}, ${sanitizeInt(a.towns)}, ${sanitizeInt(a.members)}, ${sanitizeInt(a.rank)}, ${sanitizeInt(a.abp)}, ${sanitizeInt(a.dbp)}, ${sanitizeInt(a.allBp)})`
+        ).join(',');
+        tx.push(prismaClient.$executeRawUnsafe(`
+          UPDATE "Alliance" AS a SET
+            "name" = v."name", "points" = v."points", "towns" = v."towns", "members" = v."members", "rank" = v."rank", "abp" = v."abp", "dbp" = v."dbp", "allBp" = v."allBp"
+          FROM (VALUES ${values}) AS v("id", "worldId", "name", "points", "towns", "members", "rank", "abp", "dbp", "allBp")
+          WHERE a."id" = v."id" AND a."worldId" = v."worldId"
+        `));
+      });
+    }
+
+    if (playerDeltas.toUpdate.length > 0) {
+      chunkArray(playerDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
+        const values = chunk.map(p =>
+          `(${sanitizeInt(p.id)}, '${worldId}', ${escapeSqlString(p.name)}, ${sanitizeNullableInt(p.allianceId)}, ${sanitizeInt(p.points)}, ${sanitizeInt(p.rank)}, ${sanitizeInt(p.towns)}, ${sanitizeInt(p.abp)}, ${sanitizeInt(p.dbp)}, ${sanitizeInt(p.allBp)})`
+        ).join(',');
+        tx.push(prismaClient.$executeRawUnsafe(`
+          UPDATE "Player" AS p SET
+            "name" = v."name", "allianceId" = v."allianceId", "points" = v."points", "rank" = v."rank", "towns" = v."towns", "abp" = v."abp", "dbp" = v."dbp", "allBp" = v."allBp"
+          FROM (VALUES ${values}) AS v("id", "worldId", "name", "allianceId", "points", "rank", "towns", "abp", "dbp", "allBp")
+          WHERE p."id" = v."id" AND p."worldId" = v."worldId"
+        `));
+      });
+    }
+
+    if (townDeltas.toUpdate.length > 0) {
+      chunkArray(townDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
+        const values = chunk.map(t =>
+          `(${sanitizeInt(t.id)}, '${worldId}', ${sanitizeNullableInt(t.playerId)}, ${escapeSqlString(t.name)}, ${sanitizeInt(t.islandX)}, ${sanitizeInt(t.islandY)}, ${sanitizeInt(t.islandSlot)}, ${sanitizeInt(t.points)})`
+        ).join(',');
+        tx.push(prismaClient.$executeRawUnsafe(`
+          UPDATE "Town" AS t SET
+            "playerId" = v."playerId", "name" = v."name", "islandX" = v."islandX", "islandY" = v."islandY", "islandSlot" = v."islandSlot", "points" = v."points"
+          FROM (VALUES ${values}) AS v("id", "worldId", "playerId", "name", "islandX", "islandY", "islandSlot", "points")
+          WHERE t."id" = v."id" AND t."worldId" = v."worldId"
+        `));
+      });
+    }
+
+    if (islandDeltas.toUpdate.length > 0) {
+      chunkArray(islandDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
+        const values = chunk.map(i =>
+          `(${sanitizeInt(i.id)}, '${worldId}', ${sanitizeInt(i.availableTowns)})`
+        ).join(',');
+        tx.push(prismaClient.$executeRawUnsafe(`
+          UPDATE "Island" AS i SET "availableTowns" = v."availableTowns"
+          FROM (VALUES ${values}) AS v("id", "worldId", "availableTowns")
+          WHERE i."id" = v."id" AND i."worldId" = v."worldId"
+        `));
+      });
+    }
+
+    // History & Conquers
+    if (allianceDeltas.historyDeltas.length > 0) {
+      if (typeof prismaClient.allianceHistory?.createMany === 'function') {
+        chunkArray(allianceDeltas.historyDeltas, CREATE_BATCH_SIZE).forEach(chunk => {
+          tx.push(prismaClient.allianceHistory.createMany({ data: chunk }));
+        });
+      } else {
+        chunkArray(allianceDeltas.historyDeltas, UPDATE_BATCH_SIZE).forEach(chunk => {
+          const values = chunk.map(h =>
+            `(${sanitizeInt(h.allianceId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, ${sanitizeInt(h.abpDelta)}, ${sanitizeInt(h.dbpDelta)}, ${sanitizeInt(h.allBpDelta)}, NOW())`
+          ).join(',');
+          tx.push(prismaClient.$executeRawUnsafe(`
+            INSERT INTO "AllianceHistory" ("allianceId", "worldId", "oldPoints", "newPoints", "abpDelta", "dbpDelta", "allBpDelta", "timestamp")
+            VALUES ${values}
+          `));
+        });
+      }
+    }
+
+    if (playerDeltas.historyDeltas.length > 0) {
+      if (typeof prismaClient.playerHistory?.createMany === 'function') {
+        chunkArray(playerDeltas.historyDeltas, CREATE_BATCH_SIZE).forEach(chunk => {
+          tx.push(prismaClient.playerHistory.createMany({ data: chunk }));
+        });
+      } else {
+        chunkArray(playerDeltas.historyDeltas, UPDATE_BATCH_SIZE).forEach(chunk => {
+          const values = chunk.map(h =>
+            `(${sanitizeInt(h.playerId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, ${sanitizeInt(h.abpDelta)}, ${sanitizeInt(h.dbpDelta)}, ${sanitizeInt(h.allBpDelta)}, NOW())`
+          ).join(',');
+          tx.push(prismaClient.$executeRawUnsafe(`
+            INSERT INTO "PlayerHistory" ("playerId", "worldId", "oldPoints", "newPoints", "abpDelta", "dbpDelta", "allBpDelta", "timestamp")
+            VALUES ${values}
+          `));
+        });
+      }
+    }
+
+    if (townDeltas.historyDeltas.length > 0) {
+      if (typeof prismaClient.townHistory?.createMany === 'function') {
+        chunkArray(townDeltas.historyDeltas, CREATE_BATCH_SIZE).forEach(chunk => {
+          tx.push(prismaClient.townHistory.createMany({ data: chunk }));
+        });
+      } else {
+        chunkArray(townDeltas.historyDeltas, UPDATE_BATCH_SIZE).forEach(chunk => {
+          const values = chunk.map(h =>
+            `(${sanitizeInt(h.townId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, NOW())`
+          ).join(',');
+          tx.push(prismaClient.$executeRawUnsafe(`
+            INSERT INTO "TownHistory" ("townId", "worldId", "oldPoints", "newPoints", "timestamp")
+            VALUES ${values}
+          `));
+        });
+      }
+    }
+
+    if (newConquers.length > 0) {
+      chunkArray(newConquers, CREATE_BATCH_SIZE).forEach(chunk => {
+        tx.push(prismaClient.conquest.createMany({ data: chunk }));
+      });
+    }
+
+    // Execute transaction with 60s timeout
+    if (typeof prismaClient.$transaction === 'function') {
+      await prismaClient.$transaction(tx, {
+        timeout: 60000,
+        maxWait: 10000
+      });
+    } else {
+      await Promise.all(tx);
+    }
+  },
+
+  /**
    * Executes full synchronization for a world through all pipeline stages.
    * 
    * @param {string} worldIdInput
@@ -353,164 +541,11 @@ export const WorldSyncPipeline = {
       const townDeltas = computeTownDeltas(incomingTowns, currentTowns, worldId);
       const islandDeltas = computeIslandDeltas(incomingIslands, currentIslands, worldId);
 
-      // 6. Build atomic database transaction
-      const tx = [];
-
-      // Unlink orphaned foreign keys
-      if (allianceDeltas.toDelete.length > 0) {
-        tx.push(prismaClient.player.updateMany({
-          where: { worldId, allianceId: { in: allianceDeltas.toDelete } },
-          data: { allianceId: null }
-        }));
-      }
-
-      if (playerDeltas.toDelete.length > 0) {
-        tx.push(prismaClient.town.updateMany({
-          where: { worldId, playerId: { in: playerDeltas.toDelete } },
-          data: { playerId: null }
-        }));
-      }
-
-      // Removals
-      if (townDeltas.toDelete.length > 0) {
-        tx.push(prismaClient.town.deleteMany({ where: { worldId, id: { in: townDeltas.toDelete } } }));
-      }
-      if (playerDeltas.toDelete.length > 0) {
-        tx.push(prismaClient.player.deleteMany({ where: { worldId, id: { in: playerDeltas.toDelete } } }));
-      }
-      if (allianceDeltas.toDelete.length > 0) {
-        tx.push(prismaClient.alliance.deleteMany({ where: { worldId, id: { in: allianceDeltas.toDelete } } }));
-      }
-      if (islandDeltas.toDelete.length > 0) {
-        tx.push(prismaClient.island.deleteMany({ where: { worldId, id: { in: islandDeltas.toDelete } } }));
-      }
-
-      // Inserts
-      if (allianceDeltas.toCreate.length > 0) {
-        chunkArray(allianceDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
-          tx.push(prismaClient.alliance.createMany({ data: chunk }));
-        });
-      }
-      if (playerDeltas.toCreate.length > 0) {
-        chunkArray(playerDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
-          tx.push(prismaClient.player.createMany({ data: chunk }));
-        });
-      }
-      if (townDeltas.toCreate.length > 0) {
-        chunkArray(townDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
-          tx.push(prismaClient.town.createMany({ data: chunk }));
-        });
-      }
-      if (islandDeltas.toCreate.length > 0) {
-        chunkArray(islandDeltas.toCreate, CREATE_BATCH_SIZE).forEach(chunk => {
-          tx.push(prismaClient.island.createMany({ data: chunk }));
-        });
-      }
-
-      // Chunked Updates
-      if (allianceDeltas.toUpdate.length > 0) {
-        chunkArray(allianceDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(a =>
-            `(${sanitizeInt(a.id)}, '${worldId}', ${escapeSqlString(a.name)}, ${sanitizeInt(a.points)}, ${sanitizeInt(a.towns)}, ${sanitizeInt(a.members)}, ${sanitizeInt(a.rank)}, ${sanitizeInt(a.abp)}, ${sanitizeInt(a.dbp)}, ${sanitizeInt(a.allBp)})`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            UPDATE "Alliance" AS a SET
-              "name" = v."name", "points" = v."points", "towns" = v."towns", "members" = v."members", "rank" = v."rank", "abp" = v."abp", "dbp" = v."dbp", "allBp" = v."allBp"
-            FROM (VALUES ${values}) AS v("id", "worldId", "name", "points", "towns", "members", "rank", "abp", "dbp", "allBp")
-            WHERE a."id" = v."id" AND a."worldId" = v."worldId"
-          `));
-        });
-      }
-
-      if (playerDeltas.toUpdate.length > 0) {
-        chunkArray(playerDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(p =>
-            `(${sanitizeInt(p.id)}, '${worldId}', ${escapeSqlString(p.name)}, ${sanitizeNullableInt(p.allianceId)}, ${sanitizeInt(p.points)}, ${sanitizeInt(p.rank)}, ${sanitizeInt(p.towns)}, ${sanitizeInt(p.abp)}, ${sanitizeInt(p.dbp)}, ${sanitizeInt(p.allBp)})`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            UPDATE "Player" AS p SET
-              "name" = v."name", "allianceId" = v."allianceId", "points" = v."points", "rank" = v."rank", "towns" = v."towns", "abp" = v."abp", "dbp" = v."dbp", "allBp" = v."allBp"
-            FROM (VALUES ${values}) AS v("id", "worldId", "name", "allianceId", "points", "rank", "towns", "abp", "dbp", "allBp")
-            WHERE p."id" = v."id" AND p."worldId" = v."worldId"
-          `));
-        });
-      }
-
-      if (townDeltas.toUpdate.length > 0) {
-        chunkArray(townDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(t =>
-            `(${sanitizeInt(t.id)}, '${worldId}', ${sanitizeNullableInt(t.playerId)}, ${escapeSqlString(t.name)}, ${sanitizeInt(t.islandX)}, ${sanitizeInt(t.islandY)}, ${sanitizeInt(t.islandSlot)}, ${sanitizeInt(t.points)})`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            UPDATE "Town" AS t SET
-              "playerId" = v."playerId", "name" = v."name", "islandX" = v."islandX", "islandY" = v."islandY", "islandSlot" = v."islandSlot", "points" = v."points"
-            FROM (VALUES ${values}) AS v("id", "worldId", "playerId", "name", "islandX", "islandY", "islandSlot", "points")
-            WHERE t."id" = v."id" AND t."worldId" = v."worldId"
-          `));
-        });
-      }
-
-      if (islandDeltas.toUpdate.length > 0) {
-        chunkArray(islandDeltas.toUpdate, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(i =>
-            `(${sanitizeInt(i.id)}, '${worldId}', ${sanitizeInt(i.availableTowns)})`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            UPDATE "Island" AS i SET "availableTowns" = v."availableTowns"
-            FROM (VALUES ${values}) AS v("id", "worldId", "availableTowns")
-            WHERE i."id" = v."id" AND i."worldId" = v."worldId"
-          `));
-        });
-      }
-
-      // History & Conquers
-      if (allianceDeltas.historyDeltas.length > 0) {
-        chunkArray(allianceDeltas.historyDeltas, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(h =>
-            `(${sanitizeInt(h.allianceId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, ${sanitizeInt(h.abpDelta)}, ${sanitizeInt(h.dbpDelta)}, ${sanitizeInt(h.allBpDelta)}, NOW())`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            INSERT INTO "AllianceHistory" ("allianceId", "worldId", "oldPoints", "newPoints", "abpDelta", "dbpDelta", "allBpDelta", "timestamp")
-            VALUES ${values}
-          `));
-        });
-      }
-
-      if (playerDeltas.historyDeltas.length > 0) {
-        chunkArray(playerDeltas.historyDeltas, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(h =>
-            `(${sanitizeInt(h.playerId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, ${sanitizeInt(h.abpDelta)}, ${sanitizeInt(h.dbpDelta)}, ${sanitizeInt(h.allBpDelta)}, NOW())`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            INSERT INTO "PlayerHistory" ("playerId", "worldId", "oldPoints", "newPoints", "abpDelta", "dbpDelta", "allBpDelta", "timestamp")
-            VALUES ${values}
-          `));
-        });
-      }
-
-      if (townDeltas.historyDeltas.length > 0) {
-        chunkArray(townDeltas.historyDeltas, UPDATE_BATCH_SIZE).forEach(chunk => {
-          const values = chunk.map(h =>
-            `(${sanitizeInt(h.townId)}, '${worldId}', ${sanitizeInt(h.oldPoints)}, ${sanitizeInt(h.newPoints)}, NOW())`
-          ).join(',');
-          tx.push(prismaClient.$executeRawUnsafe(`
-            INSERT INTO "TownHistory" ("townId", "worldId", "oldPoints", "newPoints", "timestamp")
-            VALUES ${values}
-          `));
-        });
-      }
-
-      if (newConquers.length > 0) {
-        chunkArray(newConquers, CREATE_BATCH_SIZE).forEach(chunk => {
-          tx.push(prismaClient.conquest.createMany({ data: chunk }));
-        });
-      }
-
-      // Execute transaction with 60s timeout
-      await prismaClient.$transaction(tx, {
-        timeout: 60000,
-        maxWait: 10000
-      });
+      // 6. Execute atomic database transaction
+      await this.persistWorldDeltas(
+        { worldId, allianceDeltas, playerDeltas, townDeltas, islandDeltas, newConquers },
+        prismaClient
+      );
 
       // 7. Automatic In-Game Town Rename Verification Check
       await this.scanTownRenames(worldId, prismaClient);
@@ -518,15 +553,10 @@ export const WorldSyncPipeline = {
       const syncTime = new Date();
 
       // 8. Compile and persist Scoreboard & GeoJSON caches via WorldCacheCompiler
-      let scoreboardGzip = null;
-      let geoJsonGzip = null;
-
       if (!skipCacheBuild) {
         try {
           console.log(`[WorldSyncPipeline] Generating atomic Scoreboard & GeoJSON caches for world [${worldId}]...`);
-          const compiled = await WorldCacheCompiler.compileWorldCaches(worldId);
-          scoreboardGzip = compiled.scoreboardGzip;
-          geoJsonGzip = compiled.geoJsonGzip;
+          const compiled = await WorldCacheCompiler.compileWorldCaches(worldId, { prismaClient });
           await WorldCacheCompiler.persistWorldCaches(worldId, compiled, prismaClient);
         } catch (cacheErr) {
           console.warn(`[WorldSyncPipeline] Warning: Failed to pre-generate cache for world ${worldId}:`, cacheErr);
@@ -554,9 +584,7 @@ export const WorldSyncPipeline = {
           lastSync: syncTime,
           lastSyncStatus: 'SUCCESS',
           lastSyncError: null,
-          lastSyncDurationMs: durationMs,
-          ...(scoreboardGzip ? { scoreboardCache: scoreboardGzip } : {}),
-          ...(geoJsonGzip ? { geoJsonCache: geoJsonGzip } : {})
+          lastSyncDurationMs: durationMs
         }
       });
 

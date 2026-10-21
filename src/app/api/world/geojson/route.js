@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateGeoJSON } from '@/lib/geojson';
 import { ensureDatabaseSchema } from '@/lib/dbBootstrap';
+import { WorldCacheCompiler } from '@/lib/world/WorldCacheCompiler';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,36 +12,12 @@ export async function GET(request) {
 
   try {
     await ensureDatabaseSchema();
-    const world = await prisma.world.findUnique({ where: { id: worldId } });
-    
-    if (world && world.geoJsonCache && world.lastSync) {
-      const etag = `W/"${world.id}-${world.lastSync.getTime()}"`;
-      if (request.headers.get('if-none-match') === etag) {
-        return new NextResponse(null, { status: 304 });
-      }
-
-      const gzipBuffer = Buffer.from(world.geoJsonCache, 'base64');
-      const uint8Array = new Uint8Array(gzipBuffer);
-      
-      return new NextResponse(uint8Array, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Encoding': 'gzip',
-          'Cache-Control': 'public, s-maxage=31536000, stale-while-revalidate=86400',
-          'ETag': etag,
-          'X-Last-Sync': world.lastSync.toISOString(),
-        },
-      });
-    }
-
-    const geojson = await generateGeoJSON(worldId);
-
-    return NextResponse.json(geojson, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=31536000, stale-while-revalidate=86400',
-        'ETag': world?.lastSync ? `W/"${world.id}-${world.lastSync.getTime()}"` : `W/"${Date.now()}"`,
-        'X-Last-Sync': world?.lastSync ? world.lastSync.toISOString() : new Date().toISOString(),
-      },
+    return await WorldCacheCompiler.serveCompressedWorldCache({
+      request,
+      worldId,
+      cacheField: 'geoJsonCache',
+      generateFallback: (id, opts) => generateGeoJSON(id, opts),
+      prismaClient: prisma
     });
   } catch (error) {
     console.error("GeoJSON generation error:", error);

@@ -6,6 +6,13 @@ import {
   Copy, ExternalLink, Navigation, Compass, Pin
 } from 'lucide-react';
 import { normalizeTownData } from './UnifiedSearchPanel';
+import { WorldOperationsAdapter } from '@/lib/world/WorldOperationsAdapter';
+
+const numberFormatter = new Intl.NumberFormat('en-US');
+function formatNumber(val) {
+  if (val === undefined || val === null) return '0';
+  return numberFormatter.format(Number(val) || 0);
+}
 
 export default function CommandDrawer({
   entity, // { type: 'town' | 'island' | 'player' | 'alliance', data: any }
@@ -28,19 +35,14 @@ export default function CommandDrawer({
       if (!entity?.data?.id && entity?.type !== 'island') return;
       setLoading(true);
       try {
-        if (entity.type === 'town') {
-          const res = await fetch(`/api/world/town/${entity.data.id}?world=${worldId}`);
-          if (res.ok) setFetchedData(await res.json());
-        } else if (entity.type === 'island') {
-          const res = await fetch(`/api/world/island?world=${worldId}&x=${entity.data.x}&y=${entity.data.y}`);
-          if (res.ok) setFetchedData(await res.json());
-        } else if (entity.type === 'player') {
-          const res = await fetch(`/api/world/player/${entity.data.id}?world=${worldId}`);
-          if (res.ok) setFetchedData(await res.json());
-        } else if (entity.type === 'alliance') {
-          const res = await fetch(`/api/world/alliance/${entity.data.id}?world=${worldId}`);
-          if (res.ok) setFetchedData(await res.json());
-        }
+        const intel = await WorldOperationsAdapter.fetchEntityIntel({
+          worldId,
+          type: entity.type,
+          id: entity.data?.id,
+          x: entity.data?.x,
+          y: entity.data?.y
+        });
+        setFetchedData(intel);
       } catch (err) {
         console.error("CommandDrawer fetch error:", err);
       } finally {
@@ -75,11 +77,15 @@ export default function CommandDrawer({
 
   return (
     <div 
-      className="glass-panel fixed top-16 right-0 bottom-0 z-50 flex flex-col bg-slate-900/95 border-l border-slate-700/80 shadow-2xl backdrop-blur-xl animate-slide-left transition-all"
-      style={{ width: '420px', maxWidth: '100vw' }}
+      className="glass-panel fixed inset-x-0 bottom-0 h-[62vh] max-h-[62vh] w-full rounded-t-2xl border-t border-slate-700/80 md:inset-y-0 md:top-16 md:right-0 md:left-auto md:h-auto md:max-h-none md:w-[400px] md:rounded-none md:border-t-0 md:border-l z-50 flex flex-col bg-slate-900/95 shadow-2xl backdrop-blur-xl animate-slide-left transition-all"
     >
+      {/* Mobile Bottom-Sheet Drag Handle Pill */}
+      <div className="flex justify-center pt-2.5 pb-1 md:hidden bg-slate-950/40 rounded-t-2xl shrink-0">
+        <div className="w-10 h-1.5 rounded-full bg-slate-600/80" />
+      </div>
+
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-2 bg-slate-950/40">
+      <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-2 bg-slate-950/40 shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="p-2 rounded-xl bg-primary/20 text-primary shrink-0 border border-primary/30">
             {entity.type === 'town' && <Castle size={20} className="text-emerald-400" />}
@@ -89,12 +95,12 @@ export default function CommandDrawer({
           </div>
           <div className="min-w-0">
             <h2 className="font-bold text-white text-base truncate">
-              {entity.type === 'island' ? `Island (${entity.data.x}, ${entity.data.y})` : (entity.data.name || `ID #${entity.data.id}`)}
+              {entity.type === 'island' ? `Island (${entity.data.x}, ${entity.data.y})` : (entity.data.name || fetchedData?.displayName || `ID #${entity.data.id}`)}
             </h2>
             <div className="text-xs text-slate-400 flex items-center gap-1.5 truncate">
               <span className="capitalize">{entity.type}</span>
               {entity.data.points !== undefined && (
-                <span>• <strong className="text-emerald-400 font-mono">{Number(entity.data.points).toLocaleString()} pts</strong></span>
+                <span>• <strong className="text-emerald-400 font-mono tabular-nums">{formatNumber(entity.data.points)} pts</strong></span>
               )}
             </div>
           </div>
@@ -251,8 +257,8 @@ export default function CommandDrawer({
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-xs font-mono font-bold text-emerald-400">{norm.points.toLocaleString()} pts</div>
-                        <div className="text-[10px] text-slate-500">Slot #{norm.islandSlot}</div>
+                        <div className="text-xs font-mono tabular-nums font-bold text-emerald-400">{formatNumber(norm.points)} pts</div>
+                        <div className="text-[10px] text-slate-500 tabular-nums">Slot #{norm.islandSlot}</div>
                       </div>
                     </div>
                   );
@@ -275,11 +281,11 @@ export default function CommandDrawer({
             <div className="grid grid-cols-2 gap-2">
               <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
                 <div className="text-[10px] text-slate-400 uppercase">World Rank</div>
-                <div className="text-lg font-bold text-amber-400 font-mono">#{entity.data.rank || fetchedData?.player?.rank || '-'}</div>
+                <div className="text-lg font-bold text-amber-400 font-mono tabular-nums">#{entity.data.rank || fetchedData?.player?.rank || '-'}</div>
               </div>
               <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
                 <div className="text-[10px] text-slate-400 uppercase">Total Cities</div>
-                <div className="text-lg font-bold text-white font-mono">{fetchedData?.towns?.length || entity.data.towns || '-'}</div>
+                <div className="text-lg font-bold text-white font-mono tabular-nums">{fetchedData?.towns?.length || entity.data.towns || '-'}</div>
               </div>
             </div>
 
@@ -288,11 +294,11 @@ export default function CommandDrawer({
               <div className="text-xs font-bold text-slate-300 mb-1">Battle Points</div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-rose-400 flex items-center gap-1"><Swords size={12} /> Attack (ABP)</span>
-                <span className="font-mono text-white font-bold">{Number(entity.data.abp || 0).toLocaleString()}</span>
+                <span className="font-mono tabular-nums text-white font-bold">{formatNumber(entity.data.abp || 0)}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-blue-400 flex items-center gap-1"><Shield size={12} /> Defense (DBP)</span>
-                <span className="font-mono text-white font-bold">{Number(entity.data.dbp || 0).toLocaleString()}</span>
+                <span className="font-mono tabular-nums text-white font-bold">{formatNumber(entity.data.dbp || 0)}</span>
               </div>
             </div>
 
@@ -311,7 +317,7 @@ export default function CommandDrawer({
                       className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 hover:bg-slate-800 border border-slate-700/40 cursor-pointer transition-colors"
                     >
                       <div className="font-bold text-white text-xs truncate">{norm.name}</div>
-                      <div className="text-xs font-mono text-emerald-400 font-bold">{norm.points.toLocaleString()} pts</div>
+                      <div className="text-xs font-mono tabular-nums text-emerald-400 font-bold">{formatNumber(norm.points)} pts</div>
                     </div>
                   );
                 })}
@@ -326,15 +332,15 @@ export default function CommandDrawer({
             <div className="grid grid-cols-3 gap-2">
               <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-center">
                 <div className="text-[10px] text-slate-400 uppercase">Rank</div>
-                <div className="text-base font-bold text-purple-400 font-mono">#{entity.data.rank || '-'}</div>
+                <div className="text-base font-bold text-purple-400 font-mono tabular-nums">#{entity.data.rank || '-'}</div>
               </div>
               <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-center">
                 <div className="text-[10px] text-slate-400 uppercase">Members</div>
-                <div className="text-base font-bold text-white font-mono">{entity.data.members || '-'}</div>
+                <div className="text-base font-bold text-white font-mono tabular-nums">{entity.data.members || '-'}</div>
               </div>
               <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-center">
                 <div className="text-[10px] text-slate-400 uppercase">Cities</div>
-                <div className="text-base font-bold text-white font-mono">{entity.data.towns || '-'}</div>
+                <div className="text-base font-bold text-white font-mono tabular-nums">{entity.data.towns || '-'}</div>
               </div>
             </div>
 
@@ -351,7 +357,7 @@ export default function CommandDrawer({
                     className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 hover:bg-slate-800 border border-slate-700/40 cursor-pointer transition-colors"
                   >
                     <div className="font-bold text-white text-xs truncate">{m.name}</div>
-                    <div className="text-xs font-mono text-purple-400 font-bold">{Number(m.points || 0).toLocaleString()} pts</div>
+                    <div className="text-xs font-mono tabular-nums text-purple-400 font-bold">{formatNumber(m.points || 0)} pts</div>
                   </div>
                 ))}
               </div>

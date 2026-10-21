@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useId } from 'react';
 
 export function Input({
   className = '',
@@ -15,11 +15,11 @@ export function Input({
   if (Icon) {
     return (
       <div className="relative w-full">
-        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
           <Icon size={16} />
         </div>
         <input
-          className={`w-full pl-9 pr-3.5 py-2 bg-slate-950/80 border rounded-xl text-white text-sm placeholder:text-slate-500 transition-all outline-none focus:ring-2 ${errorStyles} ${className}`}
+          className={`w-full pl-10 pr-3.5 py-2 bg-slate-950/80 border rounded-xl text-white text-sm placeholder:text-slate-500 transition-all outline-none focus:ring-2 ${errorStyles} ${className}`}
           {...props}
         />
       </div>
@@ -55,6 +55,7 @@ export function Select({
 }
 
 export function FormField({
+  id,
   label,
   hint,
   error,
@@ -62,14 +63,26 @@ export function FormField({
   className = '',
   required = false,
 }) {
+  const generatedId = useId();
+  const childId = React.isValidElement(children) ? children.props?.id : undefined;
+  const fieldId = id || childId || generatedId;
+
+  const enhancedChildren =
+    React.isValidElement(children) && !children.props?.id
+      ? React.cloneElement(children, { id: fieldId })
+      : children;
+
   return (
     <div className={`space-y-1.5 ${className}`}>
       {label && (
-        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+        <label
+          htmlFor={fieldId}
+          className="block text-xs font-semibold text-slate-300 uppercase tracking-wider"
+        >
           {label} {required && <span className="text-red-400">*</span>}
         </label>
       )}
-      {children}
+      {enhancedChildren}
       {hint && !error && (
         <p className="text-[11px] text-slate-400 font-sans">{hint}</p>
       )}

@@ -1,50 +1,20 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth/rbac';
+import { requireTeamAccess } from '@/lib/auth/rbac';
 
 export async function GET(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        members: {
-          include: {
-            user: {
-              select: { id: true, username: true, globalRole: true, isActive: true }
-            },
-            customRoles: {
-              include: {
-                customRole: true
-              }
-            }
-          },
-          orderBy: { createdAt: 'asc' }
-        }
-      }
+    const access = await requireTeamAccess(request, teamId, {
+      allowUnverified: true
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!access.authorized) {
+      return access.response;
     }
 
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const currentMember = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !currentMember) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = isGlobalAdmin || currentMember?.role === 'TEAM_ADMIN';
+    const { team, isTeamAdmin, user } = access;
 
     // Retrieve Grepolis in-game player statistics for all team members
     const playerIds = team.members.map(m => m.playerId).filter(Boolean);
@@ -64,7 +34,7 @@ export async function GET(request, { params }) {
 
     const enrichedMembers = team.members.map(m => {
       const pStats = playerMap.get(m.playerId);
-      const isSelf = m.userId === auth.user.sub;
+      const isSelf = m.userId === user.sub;
 
       const roles = (m.customRoles || [])
         .filter(r => r.customRole)

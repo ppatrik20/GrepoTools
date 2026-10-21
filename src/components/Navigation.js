@@ -10,6 +10,14 @@ import {
   Menu, X
 } from 'lucide-react';
 import { Modal, Badge, Button, Input } from '@/components/ui';
+import { WorldOperationsAdapter } from '@/lib/world/WorldOperationsAdapter';
+import { resolveTeamAuthority } from '@/lib/team/teamAuthority';
+
+const numberFormatter = new Intl.NumberFormat('en-US');
+function formatNumber(val) {
+  if (val === undefined || val === null) return '0';
+  return numberFormatter.format(Number(val) || 0);
+}
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -86,10 +94,11 @@ export default function Navigation() {
 
     setSearchingPlayers(true);
     const delayDebounce = setTimeout(() => {
-      fetch(`/api/world/search?world=${activeWorldId}&q=${encodeURIComponent(playerSearchQuery)}`, {
+      WorldOperationsAdapter.searchWorldEntities({
+        worldId: activeWorldId,
+        query: playerSearchQuery,
         signal: abortController.signal
       })
-        .then(res => res.json())
         .then(data => {
           setPlayerSearchResults(data.players || []);
           setSearchingPlayers(false);
@@ -111,9 +120,11 @@ export default function Navigation() {
     setSyncing(true);
     setSyncMessage(null);
     try {
-      const res = await fetch(`/api/world/sync?world=${activeWorldId}&force=true`);
-      const data = await res.json();
-      if (data.success) {
+      const data = await WorldOperationsAdapter.triggerWorldSync({
+        worldId: activeWorldId,
+        force: true
+      });
+      if (data.success !== false) {
         setSyncMessage({ type: 'success', text: `World ${activeWorldId} synced!` });
         refreshWorlds();
         refreshActivePlayer();
@@ -136,10 +147,14 @@ export default function Navigation() {
   const isSyncFailed = activeWorld?.lastSyncStatus === 'FAILURE';
   const isSyncStale = minutesAgo !== null && minutesAgo > 120;
 
-  const isGlobalAdmin = user?.globalRole === 'GLOBAL_ADMIN';
+  const teamAuthority = resolveTeamAuthority(
+    user ? { ...user, user, worldId: activeWorldId, activeWorldId } : { user: null, worldId: activeWorldId, activeWorldId },
+    activeWorldId
+  ) || {};
+  const isGlobalAdmin = teamAuthority.isGlobalAdmin ?? (user?.globalRole === 'GLOBAL_ADMIN');
   const teams = user?.teams || [];
-  const currentTeam = teams.find(t => t.worldId === activeWorldId) || teams[0];
-  const isUnverified = teams.length > 0 && !isGlobalAdmin && teams.every(t => t.status === 'UNVERIFIED');
+  const currentTeam = teamAuthority.currentTeam ?? teamAuthority.team ?? (teams.find(t => t.worldId === activeWorldId) || teams[0]);
+  const isUnverified = teamAuthority.isUnverified ?? (teams.length > 0 && !isGlobalAdmin && teams.every(t => t.status === 'UNVERIFIED'));
 
   const navLinks = [
     { href: '/', label: 'Dashboard', icon: BarChart3 },
@@ -246,8 +261,8 @@ export default function Navigation() {
                       >
                         <div>
                           <div className="font-medium text-white">{w.name}</div>
-                          <div className="text-xs text-slate-400">
-                            {w.worldType?.toUpperCase()} • {w.speed}x speed • {w.counts?.players || 0} players
+                          <div className="text-xs text-slate-400 tabular-nums">
+                            {w.worldType?.toUpperCase()} • {w.speed}x speed • {formatNumber(w.counts?.players || 0)} players
                           </div>
                         </div>
                         {w.id.toLowerCase() === activeWorldId.toLowerCase() && <Check size={16} className="text-blue-400" />}
@@ -279,8 +294,8 @@ export default function Navigation() {
                 {activePlayer ? activePlayer.name : 'Choose Player'}
               </span>
               {activePlayer && (
-                <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">
-                  #{activePlayer.rank || '-'}
+                <span className="text-[11px] text-slate-400 font-mono tabular-nums hidden sm:inline">
+                  #{activePlayer.rank ? formatNumber(activePlayer.rank) : '-'}
                 </span>
               )}
             </button>
@@ -548,8 +563,8 @@ export default function Navigation() {
             <div>
               <div className="text-[11px] text-slate-400 uppercase tracking-wider">Currently Active:</div>
               <div className="font-bold text-indigo-400 text-base">{activePlayer.name}</div>
-              <div className="text-xs text-slate-400 font-mono mt-0.5">
-                Rank #{activePlayer.rank} • {activePlayer.points?.toLocaleString()} pts • {activePlayer.towns} cities
+              <div className="text-xs text-slate-400 font-mono tabular-nums mt-0.5">
+                Rank #{activePlayer.rank ? formatNumber(activePlayer.rank) : '-'} • {formatNumber(activePlayer.points)} pts • {formatNumber(activePlayer.towns)} cities
               </div>
             </div>
             <Badge variant="accent" dot>
@@ -573,8 +588,8 @@ export default function Navigation() {
             >
               <div>
                 <div className="font-semibold text-slate-200">{p.name}</div>
-                <div className="text-xs text-slate-400 font-mono">
-                  {p.alliance?.name ? `[${p.alliance.name}] • ` : ''}{p.points?.toLocaleString()} pts
+                <div className="text-xs text-slate-400 font-mono tabular-nums">
+                  {p.alliance?.name ? `[${p.alliance.name}] • ` : ''}{formatNumber(p.points)} pts
                 </div>
               </div>
               <span className="text-xs text-blue-400 font-mono font-medium">Select →</span>

@@ -7,11 +7,16 @@ import {
   ArrowRight, Copy, Check, Info, Sparkles, MapPin, Building, Search, Loader2
 } from 'lucide-react';
 import DummyFinder from '@/components/CommandCenter/DummyFinder';
+import SnipeQueueItem from '@/components/SnipeQueueItem';
+import { PageContainer } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
 import { 
   calculateConquestGaps, 
   planRecallSnipe, 
+  planAttackOperation,
   resolveRecallTargeting,
+  resolveOperationTargeting,
+  resolveTargetDate,
   formatDuration 
 } from '@/lib/operations/OperationPlanner';
 import { 
@@ -57,6 +62,13 @@ function RecallSnipeContent() {
   const attackerInputRef = useRef(null);
   const movTimeInputRef = useRef(null);
 
+  // Outbound Launch Window Queue states (consolidated from /snipe)
+  const [queue, setQueue] = useState([]);
+  const [opLabel, setOpLabel] = useState('');
+  const [opTargetTime, setOpTargetTime] = useState('');
+  const [opTravelTime, setOpTravelTime] = useState('');
+  const [opType, setOpType] = useState('attack');
+
   // Ingest query parameters from Route Planner (/snipe/recall?targetTownId=...&originTownId=...)
   useEffect(() => {
     if (!targetTownId && !originTownId) return;
@@ -75,6 +87,15 @@ function RecallSnipeContent() {
           const res = await fetch(`/api/world/town/${originTownId}?world=${worldParam}`);
           if (res.ok) originPayload = await res.json();
         }
+
+        const opTargeting = resolveOperationTargeting({
+          originPayload,
+          targetPayload,
+          activeWorld
+        });
+        if (opTargeting.label) setOpLabel(opTargeting.label);
+        if (opTargeting.travelTime) setOpTravelTime(opTargeting.travelTime);
+        if (opTargeting.type) setOpType(opTargeting.type);
 
         setGroups(prev => {
           const result = resolveRecallTargeting({
@@ -130,13 +151,15 @@ function RecallSnipeContent() {
     }
   }, [audioEnabled]);
 
-  // Load groups from localStorage for active world
+  // Load groups and outbound launch queue from localStorage for active world
   useEffect(() => {
     if (!activeWorldId) return;
     const loadedGroups = LocalOperationsAdapter.getRecallGroups(activeWorldId);
     setGroups(loadedGroups);
     if (loadedGroups.length > 0) setActiveGroupId(loadedGroups[0].id);
     else setActiveGroupId(null);
+
+    setQueue(LocalOperationsAdapter.getQueue(activeWorldId));
   }, [activeWorldId]);
 
   // Save groups to localStorage
@@ -144,6 +167,37 @@ function RecallSnipeContent() {
     if (!activeWorldId) return;
     LocalOperationsAdapter.setRecallGroups(activeWorldId, groups);
   }, [groups, activeWorldId]);
+
+  // Save outbound launch queue to localStorage
+  useEffect(() => {
+    if (!activeWorldId) return;
+    LocalOperationsAdapter.setQueue(activeWorldId, queue);
+  }, [queue, activeWorldId]);
+
+  const handleAddQueueOp = (e) => {
+    e.preventDefault();
+    if (!opTargetTime || !opTravelTime) return;
+
+    const newOp = planAttackOperation({
+      targetLandingTime: opTargetTime,
+      travelTime: opTravelTime,
+      label: opLabel,
+      type: opType
+    });
+
+    setQueue(prev => [...prev, newOp].sort((a, b) => new Date(a.windowStart).getTime() - new Date(b.windowStart).getTime()));
+    setOpLabel('');
+    setOpTargetTime('');
+    setOpTravelTime('');
+  };
+
+  const handleRemoveQueueOp = (id) => {
+    setQueue(prev => prev.filter(op => op.id !== id));
+  };
+
+  const handleClearQueue = () => {
+    setQueue([]);
+  };
 
   // Cleanup Web Audio Context on unmount to prevent audio channel memory leaks
   useEffect(() => {
@@ -323,25 +377,11 @@ function RecallSnipeContent() {
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
 
-  const getTargetDate = (timeStr) => {
-    const parts = timeStr.split(':').map(Number);
-    const targetDate = new Date();
-    if (parts.length === 3) {
-      targetDate.setHours(parts[0], parts[1], parts[2], 0);
-    } else if (parts.length === 2) {
-      targetDate.setHours(parts[0], parts[1], 0, 0);
-    }
-    if (targetDate.getTime() < new Date().getTime()) {
-      targetDate.setDate(targetDate.getDate() + 1);
-    }
-    return targetDate.toISOString();
-  };
-
   const handleAddMovement = (e) => {
     if (e) e.preventDefault();
     if (!activeGroup || !movTime.trim()) return;
     
-    const targetDateStr = getTargetDate(movTime.trim());
+    const targetDateStr = resolveTargetDate(movTime.trim()).toISOString();
 
     const newMov = {
       id: Date.now().toString() + Math.random().toString(36).substring(7),
@@ -543,7 +583,7 @@ function RecallSnipeContent() {
   ) || [];
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto pb-12">
+    <PageContainer className="flex flex-col gap-6 pb-12">
       {/* Top Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-5 gap-4">
         <div>
@@ -1198,7 +1238,102 @@ function RecallSnipeContent() {
           </p>
         </div>
       )}
-    </div>
+
+      {/* Outbound Launch Window Queue (Consolidated from /snipe) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="glass-panel p-6 bg-slate-900/90 rounded-2xl border border-slate-800">
+          <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <Plus size={18} className="text-primary" /> Schedule Outbound Launch Window (±10s ATR)
+          </h2>
+          <form onSubmit={handleAddQueueOp} className="flex flex-col gap-3.5">
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1.5">Operation Label</label>
+              <input
+                type="text"
+                placeholder="e.g. CS Nuke to Island 44"
+                className="input-field text-xs"
+                value={opLabel}
+                onChange={e => setOpLabel(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">Target Landing Time</label>
+                <input
+                  type="text"
+                  placeholder="HH:MM:SS"
+                  className="input-field font-mono text-center text-xs"
+                  value={opTargetTime}
+                  onChange={e => setOpTargetTime(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">Travel Duration</label>
+                <input
+                  type="text"
+                  placeholder="HH:MM:SS"
+                  className="input-field font-mono text-center text-xs"
+                  value={opTravelTime}
+                  onChange={e => setOpTravelTime(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1.5">Movement Type</label>
+              <select
+                className="input-field font-semibold text-xs"
+                value={opType}
+                onChange={e => setOpType(e.target.value)}
+              >
+                <option value="attack">Attack (Offensive)</option>
+                <option value="support">Support (Defensive)</option>
+                <option value="cs">Colony Ship (CS)</option>
+              </select>
+            </div>
+
+            <button type="submit" className="btn btn-primary text-xs py-2 mt-1">
+              <Plus size={15} /> Add to Launch Queue
+            </button>
+          </form>
+        </div>
+
+        <div className="glass-panel p-6 bg-slate-900/90 rounded-2xl border border-slate-800 flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Clock size={18} className="text-accent" /> Active Launch Window Queue ({queue.length})
+              </h2>
+              {queue.length > 0 && (
+                <button type="button" onClick={handleClearQueue} className="text-xs text-rose-400 hover:underline">
+                  Clear All
+                </button>
+              )}
+            </div>
+
+            {queue.length === 0 ? (
+              <div className="text-center py-10 text-slate-500 text-xs">
+                No outbound launch windows scheduled. Use the form or export from the Route Planner to queue operations.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
+                {queue.map(op => (
+                  <SnipeQueueItem
+                    key={op.id}
+                    op={op}
+                    onRemove={handleRemoveQueueOp}
+                    serverOffset={serverOffset}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </PageContainer>
   );
 }
 

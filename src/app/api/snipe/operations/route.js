@@ -22,7 +22,8 @@ export async function GET(request) {
         originTown: { select: { name: true, islandX: true, islandY: true } },
         user: { select: { id: true, username: true } }
       },
-      orderBy: { sendTime: 'asc' }
+      orderBy: { sendTime: 'asc' },
+      take: 200
     });
 
     return NextResponse.json(operations);
@@ -93,15 +94,12 @@ export async function POST(request) {
   }
 }
 
-export async function DELETE(request) {
+export async function deleteSnipeOperationById(request, id) {
+  if (!id) {
+    return NextResponse.json({ error: 'Missing operation ID' }, { status: 400 });
+  }
+
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json({ error: 'Missing operation ID' }, { status: 400 });
-    }
-
     const op = await prisma.snipeOperation.findUnique({
       where: { id }
     });
@@ -130,7 +128,7 @@ export async function DELETE(request) {
       where: { id }
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: 'Operation deleted successfully', id });
   } catch (error) {
     if (error?.code === 'P2025') {
       return NextResponse.json({ error: 'Operation not found' }, { status: 404 });
@@ -138,4 +136,10 @@ export async function DELETE(request) {
     console.error("DELETE /api/snipe/operations error:", error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
+}
+
+export async function DELETE(request) {
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
+  return deleteSnipeOperationById(request, id);
 }

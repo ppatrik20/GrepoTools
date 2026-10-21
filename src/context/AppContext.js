@@ -1,5 +1,6 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { IdentityVerificationAdapter } from '@/lib/auth/IdentityVerificationAdapter';
 
 const AppContext = createContext(null);
 
@@ -160,11 +161,11 @@ export function AppContextProvider({ children }) {
     if (!activeWorldId) return;
     try {
       setLoadingPlayer(true);
-      const params = new URLSearchParams({ world: activeWorldId });
-      if (activePlayerName) params.append('playerName', activePlayerName);
-
-      const res = await fetch(`/api/master-player?${params.toString()}`);
-      const data = await res.json();
+      const data = await IdentityVerificationAdapter.fetchMasterPlayer({
+        worldId: activeWorldId,
+        world: activeWorldId,
+        playerName: activePlayerName
+      });
 
       if (data && data.player) {
         setActivePlayer(data.player);

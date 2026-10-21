@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { MapPin, Copy, X, Swords, Users, ExternalLink, Activity, User } from 'lucide-react';
 import { Modal, Button, Badge } from '@/components/ui';
+import { WorldOperationsAdapter } from '@/lib/world/WorldOperationsAdapter';
+
+const numberFormatter = new Intl.NumberFormat('en-US');
+function formatNumber(val) {
+  if (val === undefined || val === null) return '0';
+  return numberFormatter.format(Number(val) || 0);
+}
 
 export default function IslandModal({ 
   islandData, 
@@ -19,11 +26,14 @@ export default function IslandModal({
     async function fetchDetails() {
       try {
         setLoading(true);
-        const res = await fetch(`/api/world/island?world=${worldId}&x=${islandData.x}&y=${islandData.y}`);
-        if (res.ok) {
-          const data = await res.json();
-          setDetails(data);
-        }
+        const data = await WorldOperationsAdapter.fetchEntityIntel({
+          worldId,
+          type: 'island',
+          id: islandData?.id,
+          x: islandData?.x,
+          y: islandData?.y
+        });
+        setDetails(data);
       } catch (err) {
         console.error("Failed to fetch island details", err);
       } finally {
@@ -31,7 +41,7 @@ export default function IslandModal({
       }
     }
     fetchDetails();
-  }, [islandData.x, islandData.y, worldId]);
+  }, [islandData?.id, islandData?.x, islandData?.y, worldId]);
 
   const handleCopyBBCode = () => {
     if (!details) return;
@@ -203,12 +213,12 @@ export default function IslandModal({
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="font-mono text-sm font-bold text-accent">
-                            {town.points?.toLocaleString()} pts
+                          <span className="font-mono tabular-nums text-sm font-bold text-accent">
+                            {formatNumber(town.points)} pts
                           </span>
                           {actDelta !== 0 && (
-                            <div className={`text-[11px] font-mono ${actDelta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {actDelta > 0 ? `+${actDelta}` : actDelta} (7d)
+                            <div className={`text-[11px] font-mono tabular-nums ${actDelta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {actDelta > 0 ? `+${formatNumber(actDelta)}` : formatNumber(actDelta)} (7d)
                             </div>
                           )}
                         </div>

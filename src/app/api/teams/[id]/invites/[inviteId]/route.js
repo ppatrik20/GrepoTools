@@ -1,46 +1,22 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, hasPermission, PERMISSIONS } from '@/lib/auth/rbac';
+import {
+  requireTeamAccess,
+  PERMISSIONS,
+  AUDIT_ACTIONS
+} from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 
 export async function DELETE(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId, inviteId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        members: true
-      }
+    const access = await requireTeamAccess(request, teamId, {
+      requiredPermission: PERMISSIONS.INVITES_MANAGE
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
-    }
-
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const membership = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !membership) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = membership?.role === 'TEAM_ADMIN';
-    const canRevoke = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.INVITES_MANAGE);
-
-    if (!canRevoke) {
-      return NextResponse.json(
-        { error: 'Forbidden: Team Administrator or INVITES_MANAGE capability required' },
-        { status: 403 }
-      );
+    if (!access.authorized) {
+      return access.response;
     }
 
     const invite = await prisma.invite.findFirst({
@@ -59,12 +35,12 @@ export async function DELETE(request, { params }) {
     });
 
     await logAuditEvent({
-      userId: auth.user.sub,
-      actorUsername: auth.user.username,
-      action: 'INVITE_REVOKED',
+      userId: access.user.sub,
+      actorUsername: access.user.username,
+      action: AUDIT_ACTIONS.INVITE_REVOKED,
       targetResource: `team:${teamId}`,
-      ipAddress: auth.ipAddress,
-      userAgent: auth.userAgent,
+      ipAddress: access.ipAddress,
+      userAgent: access.userAgent,
       status: 'SUCCESS',
       details: {
         inviteId,

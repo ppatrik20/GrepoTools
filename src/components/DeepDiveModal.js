@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { X, Users, Trophy, Shield, Swords, Activity, MapPin, ExternalLink, Calendar } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { Modal, Badge } from '@/components/ui';
+import { WorldOperationsAdapter } from '@/lib/world/WorldOperationsAdapter';
+
+const numberFormatter = new Intl.NumberFormat('en-US');
 
 function formatNumber(num) {
   if (num === undefined || num === null) return "0";
-  return num.toLocaleString();
+  return numberFormatter.format(Number(num) || 0);
 }
 
 export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
@@ -15,19 +18,17 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
 
   useEffect(() => {
     async function fetchData() {
-      if (!entity?.data?.id) return;
+      if (!entity?.data?.id && entity?.type !== 'island') return;
       setLoading(true);
       try {
-        if (entity.type === 'town') {
-          const res = await fetch(`/api/world/town/${entity.data.id}?world=${worldId}`);
-          if (res.ok) setData(await res.json());
-        } else if (entity.type === 'player') {
-          const res = await fetch(`/api/world/player/${entity.data.id}?world=${worldId}`);
-          if (res.ok) setData(await res.json());
-        } else if (entity.type === 'alliance') {
-          const res = await fetch(`/api/world/alliance/${entity.data.id}?world=${worldId}`);
-          if (res.ok) setData(await res.json());
-        }
+        const intel = await WorldOperationsAdapter.fetchEntityIntel({
+          worldId,
+          type: entity.type,
+          id: entity.data?.id,
+          x: entity.data?.x,
+          y: entity.data?.y
+        });
+        setData(intel);
       } catch (err) {
         console.error("DeepDiveModal error:", err);
       } finally {
@@ -46,11 +47,11 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
   };
 
   const getEntityTitle = () => {
-    return entity.data.name || (entity.type === 'town' ? `Town #${entity.data.id}` : 'Intelligence Report');
+    return entity.data.name || data?.displayName || (entity.type === 'town' ? `Town #${entity.data.id}` : 'Intelligence Report');
   };
 
   const getPlayerName = () => {
-    if (entity.type === 'player') return entity.data.name;
+    if (entity.type === 'player') return entity.data.name || data?.displayName;
     if (typeof entity.data.player === 'object') return entity.data.player?.name || 'Ghost Town';
     if (typeof entity.data.player === 'string') return entity.data.player;
     if (data?.town?.player?.name) return data.town.player.name;
@@ -58,15 +59,16 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
   };
 
   const getAllianceName = () => {
-    if (entity.type === 'alliance') return entity.data.name;
+    if (entity.type === 'alliance') return entity.data.name || data?.displayName;
     if (typeof entity.data.alliance === 'object') return entity.data.alliance?.name;
     if (typeof entity.data.alliance === 'string') return entity.data.alliance;
     if (typeof entity.data.player === 'object' && entity.data.player?.alliance?.name) return entity.data.player.alliance.name;
+    if (data?.allianceName) return data.allianceName;
     if (data?.town?.player?.alliance?.name) return data.town.player.alliance.name;
     return null;
   };
 
-  const totalPoints = entity.data.points || entity.data.pts || data?.town?.points || 0;
+  const totalPoints = entity.data.points || entity.data.pts || data?.points || data?.town?.points || 0;
   const islandSlot = entity.data.islandSlot ?? entity.data.slot ?? data?.town?.islandSlot ?? '-';
   const coordsX = entity.data.islandX || entity.data.x || data?.town?.islandX;
   const coordsY = entity.data.islandY || entity.data.y || data?.town?.islandY;
@@ -77,7 +79,7 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
       onClose={onClose}
       maxWidth="4xl"
     >
-      <div className="flex flex-col gap-4 text-white">
+      <div className="flex flex-col gap-4 text-white pb-2">
         {/* Header */}
         <div className="flex items-center gap-4 mb-2 border-b border-slate-800 pb-4">
           <div className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 shrink-0">
@@ -100,7 +102,7 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
                 {getPlayerName()} {getAllianceName() ? ` • [${getAllianceName()}]` : ''}
               </div>
             )}
-            <div className="text-xs text-slate-400 capitalize mt-1">
+            <div className="text-xs text-slate-400 capitalize mt-1 tabular-nums">
               {entity.type} Intelligence
               {coordsX !== undefined && coordsY !== undefined && ` • Coordinates (${coordsX}, ${coordsY})`}
             </div>
@@ -111,7 +113,7 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-center">
             <Trophy size={18} className="text-amber-400 mx-auto mb-1" />
-            <div className="text-2xl font-mono font-bold text-white">
+            <div className="text-2xl font-mono tabular-nums font-bold text-white">
               {formatNumber(totalPoints)}
             </div>
             <div className="text-xs text-slate-400 mt-0.5">Total Points</div>
@@ -121,15 +123,15 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
             <>
               <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-center">
                 <Swords size={18} className="text-rose-400 mx-auto mb-1" />
-                <div className="text-2xl font-mono font-bold text-white">
-                  {formatNumber(entity.data.abp)}
+                <div className="text-2xl font-mono tabular-nums font-bold text-white">
+                  {formatNumber(entity.data.abp ?? data?.entityData?.abp)}
                 </div>
                 <div className="text-xs text-slate-400 mt-0.5">Attack BP</div>
               </div>
               <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-center">
                 <Shield size={18} className="text-blue-400 mx-auto mb-1" />
-                <div className="text-2xl font-mono font-bold text-white">
-                  {formatNumber(entity.data.dbp)}
+                <div className="text-2xl font-mono tabular-nums font-bold text-white">
+                  {formatNumber(entity.data.dbp ?? data?.entityData?.dbp)}
                 </div>
                 <div className="text-xs text-slate-400 mt-0.5">Defense BP</div>
               </div>
@@ -138,14 +140,14 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
             <>
               <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-center">
                 <Activity size={18} className="text-emerald-400 mx-auto mb-1" />
-                <div className="text-2xl font-mono font-bold text-emerald-400">
-                  {data?.activity?.pointDelta ? `+${data.activity.pointDelta}` : '0'}
+                <div className="text-2xl font-mono tabular-nums font-bold text-emerald-400">
+                  {data?.activity?.pointDelta ? `+${formatNumber(data.activity.pointDelta)}` : '0'}
                 </div>
                 <div className="text-xs text-slate-400 mt-0.5">7-Day Growth</div>
               </div>
               <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-center">
                 <MapPin size={18} className="text-primary mx-auto mb-1" />
-                <div className="text-2xl font-mono font-bold text-white">
+                <div className="text-2xl font-mono tabular-nums font-bold text-white">
                   #{islandSlot}
                 </div>
                 <div className="text-xs text-slate-400 mt-0.5">Island Slot</div>
@@ -228,14 +230,14 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
         </div>
 
         {/* Conquests History */}
-        <div>
+        <div className="pb-4">
           <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
             <Swords size={16} className="text-rose-400" /> Conquest History & Log
           </h3>
           {loading ? (
             <div className="py-6 text-center text-slate-500 text-sm animate-pulse">Loading conquest log...</div>
           ) : data?.conquests?.length > 0 ? (
-            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+            <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1 pb-4 overscroll-contain">
               {data.conquests.map((c) => {
                 const isGain = c.newPlayerId === entity.data.id || c.newAllianceId === entity.data.id;
                 return (
@@ -253,13 +255,13 @@ export default function DeepDiveModal({ entity, onClose, worldId = 'hu119' }) {
                       }`}>
                         {entity.type === 'town' ? 'TRANSFERRED' : isGain ? 'CONQUERED' : 'LOST'}
                       </span>
-                      <span className="text-slate-300">
+                      <span className="text-slate-300 tabular-nums">
                         {entity.type === 'town' 
                           ? `${c.oldPlayerObj?.name || 'Ghost'} → ${c.newPlayerObj?.name || 'Ghost'}`
                           : `Town #${c.townId} (${formatNumber(c.townPoints)} pts)`}
                       </span>
                     </div>
-                    <div className="text-slate-400 font-mono">
+                    <div className="text-slate-400 font-mono tabular-nums">
                       {new Date(c.timestamp).toLocaleDateString()} {new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>

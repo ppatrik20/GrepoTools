@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-
 import { requireAuth } from '@/lib/auth/rbac';
+import { normalizeBuildingLevelsPayload } from '@/lib/planner/CityPlannerEngine';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +9,7 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const playerIdStr = searchParams.get('playerId');
-    const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
+    const worldId = (searchParams.get('world') || searchParams.get('worldId') || 'hu119').toLowerCase().trim();
 
     if (!playerIdStr) {
       return NextResponse.json({ error: 'Missing playerId parameter' }, { status: 400 });
@@ -35,7 +35,21 @@ export async function GET(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { townId, worldId = 'hu119', specialization, bunksResearched, plowResearched, cartographyResearched, mathResearched, hasThermalBaths, hasTower, hasLighthouse, buildingLevels } = body;
+    const {
+      townId,
+      worldId,
+      world,
+      specialization,
+      bunksResearched,
+      plowResearched,
+      cartographyResearched,
+      mathResearched,
+      hasThermalBaths,
+      hasTower,
+      hasLighthouse,
+      buildingLevels,
+      buildings,
+    } = body;
 
     if (!townId) {
       return NextResponse.json({ error: 'Missing townId' }, { status: 400 });
@@ -46,7 +60,7 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'Invalid townId' }, { status: 400 });
     }
 
-    const normalizedWorldId = worldId.toLowerCase();
+    const normalizedWorldId = String(worldId || world || 'hu119').toLowerCase().trim();
 
     // Check town existence
     const town = await prisma.town.findUnique({
@@ -81,33 +95,22 @@ export async function PUT(request) {
 
     const updateData = {};
     if (specialization !== undefined) updateData.specialization = specialization;
-    if (bunksResearched !== undefined) updateData.bunksResearched = bunksResearched;
-    if (plowResearched !== undefined) updateData.plowResearched = plowResearched;
-    if (cartographyResearched !== undefined) updateData.cartographyResearched = cartographyResearched;
-    if (mathResearched !== undefined) updateData.mathResearched = mathResearched;
-    if (hasThermalBaths !== undefined) updateData.hasThermalBaths = hasThermalBaths;
-    if (hasTower !== undefined) updateData.hasTower = hasTower;
-    if (hasLighthouse !== undefined) updateData.hasLighthouse = hasLighthouse;
+    if (bunksResearched !== undefined) updateData.bunksResearched = Boolean(bunksResearched);
+    if (plowResearched !== undefined) updateData.plowResearched = Boolean(plowResearched);
+    if (cartographyResearched !== undefined) updateData.cartographyResearched = Boolean(cartographyResearched);
+    if (mathResearched !== undefined) updateData.mathResearched = Boolean(mathResearched);
+    if (hasThermalBaths !== undefined) updateData.hasThermalBaths = Boolean(hasThermalBaths);
+    if (hasTower !== undefined) updateData.hasTower = Boolean(hasTower);
+    if (hasLighthouse !== undefined) updateData.hasLighthouse = Boolean(hasLighthouse);
 
-    if (buildingLevels) {
-      if (buildingLevels.mainLevel !== undefined) updateData.mainLevel = buildingLevels.mainLevel;
-      if (buildingLevels.farmLevel !== undefined) updateData.farmLevel = buildingLevels.farmLevel;
-      if (buildingLevels.barracksLevel !== undefined) updateData.barracksLevel = buildingLevels.barracksLevel;
-      if (buildingLevels.docksLevel !== undefined) updateData.docksLevel = buildingLevels.docksLevel;
-      if (buildingLevels.wallLevel !== undefined) updateData.wallLevel = buildingLevels.wallLevel;
-      if (buildingLevels.templeLevel !== undefined) updateData.templeLevel = buildingLevels.templeLevel;
-      if (buildingLevels.lumberLevel !== undefined) updateData.lumberLevel = buildingLevels.lumberLevel;
-      if (buildingLevels.stonerLevel !== undefined) updateData.stonerLevel = buildingLevels.stonerLevel;
-      if (buildingLevels.ironerLevel !== undefined) updateData.ironerLevel = buildingLevels.ironerLevel;
-      if (buildingLevels.marketLevel !== undefined) updateData.marketLevel = buildingLevels.marketLevel;
-      if (buildingLevels.academyLevel !== undefined) updateData.academyLevel = buildingLevels.academyLevel;
-    }
+    const resolvedBuildings = normalizeBuildingLevelsPayload(buildingLevels || buildings || {});
+    Object.assign(updateData, resolvedBuildings);
 
     const updatedTown = await prisma.town.update({
-      where: { 
+      where: {
         id_worldId: {
           id,
-          worldId: worldId.toLowerCase()
+          worldId: normalizedWorldId
         }
       },
       data: updateData

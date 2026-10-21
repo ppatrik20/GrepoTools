@@ -1,33 +1,10 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { ensureDatabaseSchema } from '@/lib/dbBootstrap';
+import { requireAuth } from '@/lib/auth/rbac';
 
 export const dynamic = 'force-dynamic';
-
-let isTableEnsured = false;
-
-async function ensureCoalitionTable() {
-  if (isTableEnsured) return;
-  try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "Coalition" (
-        "id" TEXT NOT NULL,
-        "worldId" TEXT NOT NULL DEFAULT 'hu119',
-        "name" TEXT NOT NULL,
-        "color" TEXT NOT NULL DEFAULT '#10b981',
-        "allianceIds" INTEGER[] DEFAULT ARRAY[]::INTEGER[],
-        "alliances" TEXT[] DEFAULT ARRAY[]::TEXT[],
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT "Coalition_pkey" PRIMARY KEY ("id")
-      );
-    `);
-    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "Coalition_worldId_name_key" ON "Coalition"("worldId", "name");`);
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Coalition_worldId_idx" ON "Coalition"("worldId");`);
-    isTableEnsured = true;
-  } catch (err) {
-    console.warn("Could not auto-ensure Coalition table via raw SQL:", err);
-  }
-}
 
 function normalizeCoalitionInput(c) {
   const name = (c.name || '').trim();
@@ -76,23 +53,12 @@ export async function GET(request) {
   const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
 
   try {
-    let dbCoalitions;
-    try {
-      dbCoalitions = await prisma.coalition.findMany({
-        where: { worldId },
-        orderBy: { name: 'asc' }
-      });
-    } catch (dbErr) {
-      if (dbErr.code === 'P2021' || (dbErr.message && dbErr.message.includes('does not exist'))) {
-        await ensureCoalitionTable();
-        dbCoalitions = await prisma.coalition.findMany({
-          where: { worldId },
-          orderBy: { name: 'asc' }
-        });
-      } else {
-        throw dbErr;
-      }
-    }
+    await ensureDatabaseSchema();
+
+    const dbCoalitions = await prisma.coalition.findMany({
+      where: { worldId },
+      orderBy: { name: 'asc' }
+    });
 
     const coalitions = dbCoalitions.map(c => ({
       id: c.id,
@@ -119,7 +85,14 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const auth = await requireAuth(request);
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
   try {
+    await ensureDatabaseSchema();
+
     const body = await request.json();
     const worldId = (body.worldId || 'hu119').toLowerCase();
     const inputList = Array.isArray(body.coalitions) ? body.coalitions : [];
@@ -135,89 +108,39 @@ export async function POST(request) {
       }
     });
 
-    const executeSync = async () => {
-      return await prisma.$transaction(async (tx) => {
-        const existing = await tx.coalition.findMany({
-          where: { worldId }
-        });
-        const existingMap = new Map(existing.map(e => [e.id, e]));
-
-        const inputNormalized = inputList
-          .map(normalizeCoalitionInput)
-          .filter(c => c.name.length > 0 && (c.alliances.length > 0 || c.allianceIds.length > 0));
-
-        const incomingIds = new Set();
-
-        // Upsert / Create
-        const results = [];
-        for (const item of inputNormalized) {
-          if (item.id && existingMap.has(item.id)) {
-            // Update existing
-            incomingIds.add(item.id);
-            const updated = await tx.coalition.update({
-              where: { id: item.id },
-              data: {
-                name: item.name,
-                color: item.color,
-                allianceIds: item.allianceIds,
-                alliances: item.alliances
-              }
-            });
-            results.push(updated);
-          } else {
-            // Check by name in case of rename or collision
-            const byName = existing.find(e => e.name.toLowerCase() === item.name.toLowerCase());
-            if (byName) {
-              incomingIds.add(byName.id);
-              const updated = await tx.coalition.update({
-                where: { id: byName.id },
-                data: {
-                  color: item.color,
-                  allianceIds: item.allianceIds,
-                  alliances: item.alliances
-                }
-              });
-              results.push(updated);
-            } else {
-              // Create fresh
-              const created = await tx.coalition.create({
-                data: {
-                  worldId,
-                  name: item.name,
-                  color: item.color,
-                  allianceIds: item.allianceIds,
-                  alliances: item.alliances
-                }
-              });
-              incomingIds.add(created.id);
-              results.push(created);
-            }
-          }
-        }
-
-        // Delete removed coalitions
-        const toDelete = existing.filter(e => !incomingIds.has(e.id));
-        if (toDelete.length > 0) {
-          await tx.coalition.deleteMany({
-            where: { id: { in: toDelete.map(d => d.id) } }
-          });
-        }
-
-        return results;
-      });
-    };
-
-    let savedCoalitions;
-    try {
-      savedCoalitions = await executeSync();
-    } catch (syncErr) {
-      if (syncErr.code === 'P2021' || (syncErr.message && syncErr.message.includes('does not exist'))) {
-        await ensureCoalitionTable();
-        savedCoalitions = await executeSync();
-      } else {
-        throw syncErr;
+    const dedupedByName = new Map();
+    for (const raw of inputList) {
+      const item = normalizeCoalitionInput(raw);
+      if (item.name.length > 0 && (item.alliances.length > 0 || item.allianceIds.length > 0)) {
+        dedupedByName.set(item.name.toLowerCase(), item);
       }
     }
+    const inputNormalized = Array.from(dedupedByName.values());
+
+    const savedCoalitions = await prisma.$transaction(async (tx) => {
+      await tx.coalition.deleteMany({
+        where: { worldId }
+      });
+
+      if (inputNormalized.length > 0) {
+        await tx.coalition.createMany({
+          data: inputNormalized.map(item => ({
+            id: item.id || crypto.randomUUID(),
+            worldId,
+            name: item.name,
+            color: item.color,
+            allianceIds: item.allianceIds,
+            alliances: item.alliances
+          })),
+          skipDuplicates: true
+        });
+      }
+
+      return await tx.coalition.findMany({
+        where: { worldId },
+        orderBy: { name: 'asc' }
+      });
+    });
 
     return NextResponse.json({
       success: true,
@@ -231,6 +154,11 @@ export async function POST(request) {
 }
 
 export async function DELETE(request) {
+  const auth = await requireAuth(request);
+  if (!auth.authorized) {
+    return auth.response;
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
@@ -240,17 +168,11 @@ export async function DELETE(request) {
   }
 
   try {
-    try {
-      await prisma.coalition.delete({
-        where: { id }
-      });
-    } catch (delErr) {
-      if (delErr.code === 'P2021' || (delErr.message && delErr.message.includes('does not exist'))) {
-        await ensureCoalitionTable();
-      } else {
-        throw delErr;
-      }
-    }
+    await ensureDatabaseSchema();
+
+    await prisma.coalition.delete({
+      where: { id }
+    });
 
     const remaining = await prisma.coalition.findMany({
       where: { worldId },

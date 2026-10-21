@@ -7,8 +7,13 @@ import {
   generateRefreshToken,
   setAuthCookies
 } from '@/lib/auth/tokens';
-import { logAuditEvent } from '@/lib/auth/audit';
-import { extractClientIp, extractUserAgent, buildTeamMembershipPayload } from '@/lib/auth/rbac';
+import { logAuditEvent, AUDIT_ACTIONS } from '@/lib/auth/audit';
+import {
+  extractClientIp,
+  extractUserAgent,
+  TEAM_MEMBERSHIP_INCLUDE,
+  buildTeamMembershipPayload
+} from '@/lib/auth/rbac';
 
 export async function POST(request) {
   const ipAddress = extractClientIp(request);
@@ -64,39 +69,7 @@ export async function POST(request) {
 
     const username = invite.targetPlayerName.trim();
 
-    // 2. Lookup or create User
-    let user = await prisma.user.findFirst({
-      where: {
-        username: {
-          equals: username,
-          mode: 'insensitive'
-        }
-      }
-    });
-
-    if (user) {
-      // Existing user claiming an additional team or world: verify password
-      const isMatch = await verifyPassword(password, user.passwordHash);
-      if (!isMatch) {
-        return NextResponse.json(
-          { error: 'Account already exists for this player name. Provided password does not match existing account.' },
-          { status: 401 }
-        );
-      }
-    } else {
-      // New user registration
-      const passwordHash = await hashPassword(password);
-      user = await prisma.user.create({
-        data: {
-          username,
-          passwordHash,
-          globalRole: 'USER',
-          isActive: true
-        }
-      });
-    }
-
-    // 3. Resolve In-Game Grepolis Player ID from World
+    // 2. Resolve In-Game Grepolis Player ID & candidate town BEFORE creating User
     const player = await prisma.player.findFirst({
       where: {
         worldId: invite.worldId,
@@ -114,84 +87,136 @@ export async function POST(request) {
     }
 
     const playerId = player.id;
+    const starterTown = typeof prisma.town?.findFirst === 'function'
+      ? await prisma.town.findFirst({
+          where: {
+            worldId: invite.worldId,
+            playerId
+          },
+          select: { id: true, name: true }
+        }).catch(() => null)
+      : null;
 
-    // 4. Generate unique verification code e.g. "GP-742918"
-    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
-    const verificationCode = `GP-${randomSuffix}`;
-
-    // 5. Upsert TeamMember record (preserving verified status if already verified)
-    const existingMember = await prisma.teamMember.findUnique({
+    // 3. Lookup existing user (and verify password) or hash password for new user
+    const existingUser = await prisma.user.findFirst({
       where: {
-        teamId_userId: {
-          teamId: invite.teamId,
-          userId: user.id
+        username: {
+          equals: username,
+          mode: 'insensitive'
         }
       }
     });
 
-    let member;
-    if (existingMember) {
-      const keepVerified = existingMember.verificationStatus === 'VERIFIED';
-      member = await prisma.teamMember.update({
-        where: { id: existingMember.id },
-        data: {
+    let passwordHash = null;
+    if (existingUser) {
+      const isMatch = await verifyPassword(password, existingUser.passwordHash);
+      if (!isMatch) {
+        return NextResponse.json(
+          { error: 'Account already exists for this player name. Provided password does not match existing account.' },
+          { status: 401 }
+        );
+      }
+    } else {
+      passwordHash = await hashPassword(password);
+    }
+
+    // 4. Generate unique verification code e.g. "GP-742918" and refresh token
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+    const verificationCode = `GP-${randomSuffix}`;
+    const { rawToken, tokenHash, expiresAt } = generateRefreshToken();
+    const familyId = crypto.randomUUID();
+
+    const existingMember = existingUser
+      ? await prisma.teamMember.findUnique({
+          where: {
+            teamId_userId: {
+              teamId: invite.teamId,
+              userId: existingUser.id
+            }
+          }
+        })
+      : null;
+
+    const keepVerified = existingMember?.verificationStatus === 'VERIFIED';
+    const effectiveVerificationCode = keepVerified ? existingMember.verificationCode : verificationCode;
+
+    // 5. Atomically create/resolve User, upsert TeamMember, assign custom roles, increment Invite, and persist RefreshToken
+    const { user } = await prisma.$transaction(async (tx) => {
+      const resolvedUser = existingUser
+        ? existingUser
+        : await tx.user.create({
+            data: {
+              username,
+              passwordHash,
+              globalRole: 'USER',
+              isActive: true
+            }
+          });
+
+      const member = await tx.teamMember.upsert({
+        where: {
+          teamId_userId: {
+            teamId: invite.teamId,
+            userId: resolvedUser.id
+          }
+        },
+        update: {
           role: invite.role,
           playerId,
           playerName: player.name || username,
-          verificationCode: keepVerified ? existingMember.verificationCode : verificationCode,
+          verificationCode: effectiveVerificationCode,
           verificationStatus: keepVerified ? 'VERIFIED' : 'UNVERIFIED',
           verifiedAt: keepVerified ? existingMember.verifiedAt : null
         },
-        include: { team: true }
-      });
-    } else {
-      member = await prisma.teamMember.create({
-        data: {
+        create: {
           teamId: invite.teamId,
-          userId: user.id,
+          userId: resolvedUser.id,
           worldId: invite.worldId,
           role: invite.role,
           playerId,
           playerName: player.name || username,
-          verificationCode,
+          verificationCode: effectiveVerificationCode,
           verificationStatus: 'UNVERIFIED'
         },
         include: { team: true }
       });
-    }
 
-    // 5.5 Assign pre-assigned custom roles from invitation if present
-    if (Array.isArray(invite.customRoleIds) && invite.customRoleIds.length > 0) {
-      for (const customRoleId of invite.customRoleIds) {
-        await prisma.teamMemberRoleAssignment.upsert({
-          where: {
-            memberId_customRoleId: {
-              memberId: member.id,
-              customRoleId
-            }
-          },
-          update: {},
-          create: {
+      if (Array.isArray(invite.customRoleIds) && invite.customRoleIds.length > 0) {
+        await tx.teamMemberRoleAssignment.createMany({
+          data: invite.customRoleIds.map(customRoleId => ({
             memberId: member.id,
             customRoleId
-          }
-        }).catch(() => {});
+          })),
+          skipDuplicates: true
+        });
       }
-    }
 
-    // 6. Update invite usage
-    await prisma.invite.update({
-      where: { id: invite.id },
-      data: {
-        usedCount: { increment: 1 }
-      }
+      await tx.invite.update({
+        where: { id: invite.id },
+        data: {
+          usedCount: { increment: 1 }
+        }
+      });
+
+      await tx.refreshToken.create({
+        data: {
+          userId: resolvedUser.id,
+          tokenHash,
+          familyId,
+          expiresAt,
+          ipAddress,
+          userAgent
+        }
+      });
+
+      return { user: resolvedUser, member };
     });
 
-    // 7. Record Audit Log
+    // 6. Record Audit Log
     await logAuditEvent({
       userId: user.id,
       actorUsername: user.username,
-      action: 'USER_REGISTERED_VIA_INVITE',
+      action: AUDIT_ACTIONS.USER_REGISTERED_VIA_INVITE,
       targetResource: `team:${invite.teamId}`,
       ipAddress,
       userAgent,
@@ -200,26 +225,20 @@ export async function POST(request) {
         teamId: invite.teamId,
         worldId: invite.worldId,
         role: invite.role,
-        verificationCode
+        verificationCode: effectiveVerificationCode,
+        starterTownId: starterTown?.id ?? null
       }
     });
 
-    // 8. Fetch updated team memberships with custom roles for JWT session
+    // 7. Fetch updated team memberships with custom roles for JWT session
     const allMemberships = await prisma.teamMember.findMany({
       where: { userId: user.id },
-      include: {
-        team: true,
-        customRoles: {
-          include: {
-            customRole: true
-          }
-        }
-      }
+      include: TEAM_MEMBERSHIP_INCLUDE
     });
 
     const teams = buildTeamMembershipPayload(allMemberships);
 
-    // 9. Generate dual tokens and set auth cookies
+    // 8. Generate access token and set auth cookies
     const accessToken = await generateAccessToken({
       sub: user.id,
       username: user.username,
@@ -227,24 +246,10 @@ export async function POST(request) {
       teams
     });
 
-    const { rawToken, tokenHash, expiresAt } = generateRefreshToken();
-    const familyId = crypto.randomUUID();
-
-    await prisma.refreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash,
-        familyId,
-        expiresAt,
-        ipAddress,
-        userAgent
-      }
-    });
-
     const response = NextResponse.json({
       success: true,
       message: 'Account registered successfully. Please verify your town in-game.',
-      verificationCode,
+      verificationCode: effectiveVerificationCode,
       user: {
         id: user.id,
         username: user.username,

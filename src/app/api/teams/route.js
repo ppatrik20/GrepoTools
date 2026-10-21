@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/auth/rbac';
+import {
+  requireAuth,
+  DEFAULT_ROLE_TEMPLATES,
+  AUDIT_ACTIONS
+} from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 
 export async function GET(request) {
@@ -17,8 +21,14 @@ export async function GET(request) {
     if (worldId) where.worldId = worldId;
 
     const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
+    if (!isGlobalAdmin) {
+      where.members = {
+        some: {
+          userId: auth.user.sub
+        }
+      };
+    }
 
-    // If not global admin, return teams user is associated with or all teams on world
     const teams = await prisma.team.findMany({
       where,
       include: {
@@ -111,10 +121,25 @@ export async function POST(request) {
       }
     });
 
+    if (typeof prisma.teamCustomRole?.createMany === 'function') {
+      await prisma.teamCustomRole.createMany({
+        data: DEFAULT_ROLE_TEMPLATES.map(tpl => ({
+          teamId: team.id,
+          name: tpl.name,
+          description: tpl.description,
+          color: tpl.color,
+          icon: tpl.icon,
+          priority: tpl.priority,
+          permissions: tpl.permissions
+        })),
+        skipDuplicates: true
+      }).catch(() => {});
+    }
+
     await logAuditEvent({
       userId: auth.user.sub,
       actorUsername: auth.user.username,
-      action: 'TEAM_CREATED',
+      action: AUDIT_ACTIONS.TEAM_CREATED,
       targetResource: `team:${team.id}`,
       ipAddress: auth.ipAddress,
       userAgent: auth.userAgent,

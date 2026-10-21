@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCachedSyncEpoch } from '@/lib/syncMetadata';
-import { PALETTE } from '@/lib/constants';
+import { compileOceanSummarySnapshot } from '@/lib/geojson';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,28 +10,12 @@ export async function GET(request, props) {
     const oceanId = params.id;
     const { searchParams } = new URL(request.url);
     const worldId = (searchParams.get('world') || 'hu119').toLowerCase();
-    
+
     if (!oceanId || oceanId.length !== 2) {
       return NextResponse.json({ error: "Invalid ocean ID" }, { status: 400 });
     }
 
-    const epoch = await getCachedSyncEpoch(worldId);
     const oceanIds = [parseInt(oceanId, 10)];
-
-    // Fetch Top 10 Alliances for coloring
-    const dbAlliances = await prisma.alliance.findMany({
-      where: { worldId, id: { not: -epoch } },
-      orderBy: { towns: 'desc' },
-      take: 10,
-      select: { name: true }
-    });
-    const allianceColors = {};
-    dbAlliances.forEach((a, i) => {
-      allianceColors[a.name] = PALETTE[i] || "#ffffff";
-    });
-
-    const outputIslands = [];
-    const outputTowns = [];
 
     const orConditions = oceanIds.map(o => {
       const xStr = o.toString().padStart(2, '0');
@@ -42,13 +25,6 @@ export async function GET(request, props) {
         x: { gte: oceanX * 100, lt: (oceanX + 1) * 100 },
         y: { gte: oceanY * 100, lt: (oceanY + 1) * 100 }
       };
-    });
-
-    const worldRadiusSq = Math.pow(250, 2);
-
-    const islands = await prisma.island.findMany({
-      where: { worldId, OR: orConditions, id: { not: -epoch } },
-      select: { id: true, x: true, y: true, availableTowns: true, resourcePlus: true, resourceMinus: true }
     });
 
     const townOrConditions = oceanIds.map(o => {
@@ -61,79 +37,34 @@ export async function GET(request, props) {
       };
     });
 
-    const towns = await prisma.town.findMany({
-      where: { worldId, OR: townOrConditions, id: { not: -epoch } },
-      select: {
-        id: true, name: true, points: true, islandX: true, islandY: true, islandSlot: true,
-        player: {
-          select: { name: true, alliance: { select: { name: true } } }
-        }
-      }
-    });
-
-    // Create town lookup
-    const townLookup = {};
-    for (const t of towns) {
-      const key = `${t.islandX},${t.islandY}`;
-      if (!townLookup[key]) townLookup[key] = [];
-      townLookup[key].push(t);
-    }
-
-    for (const island of islands) {
-      const distSq = Math.pow(island.x - 500, 2) + Math.pow(island.y - 500, 2);
-      if (distSq > worldRadiusSq) continue;
-
-      const islandTowns = townLookup[`${island.x},${island.y}`] || [];
-      let dominantAlliance = null;
-      let maxTowns = 0;
-      const localAllyCounts = {};
-
-      for (const t of islandTowns) {
-        const allyName = t.player && t.player.alliance ? t.player.alliance.name : null;
-        if (allyName) {
-          localAllyCounts[allyName] = (localAllyCounts[allyName] || 0) + 1;
-          if (localAllyCounts[allyName] > maxTowns) {
-            maxTowns = localAllyCounts[allyName];
-            dominantAlliance = allyName;
+    const [dbAlliances, islands, towns] = await Promise.all([
+      prisma.alliance.findMany({
+        where: { worldId },
+        orderBy: { towns: 'desc' },
+        take: 10,
+        select: { name: true, towns: true }
+      }),
+      prisma.island.findMany({
+        where: { worldId, OR: orConditions },
+        select: { id: true, x: true, y: true, availableTowns: true, resourcePlus: true, resourceMinus: true }
+      }),
+      prisma.town.findMany({
+        where: { worldId, OR: townOrConditions },
+        select: {
+          id: true, name: true, points: true, islandX: true, islandY: true, islandSlot: true,
+          player: {
+            select: { name: true, alliance: { select: { name: true } } }
           }
         }
-      }
+      })
+    ]);
 
-      const totalCapacity = island.availableTowns + islandTowns.length;
-      if (totalCapacity === 0) continue;
-
-      const isRock = totalCapacity <= 13;
-      let islandColor = "#1e293b";
-      if (islandTowns.length > 0) {
-        islandColor = "#e2e8f0"; 
-        if (dominantAlliance && allianceColors[dominantAlliance]) {
-          islandColor = allianceColors[dominantAlliance];
-        }
-      }
-
-      outputIslands.push({
-        id: island.id, x: island.x, y: island.y,
-        type: isRock ? 'rock' : 'island',
-        availableTowns: island.availableTowns,
-        resourcePlus: island.resourcePlus,
-        resourceMinus: island.resourceMinus,
-        colonizedCount: islandTowns.length,
-        color: islandColor,
-        alliance: dominantAlliance || "None"
-      });
-
-      for (const t of islandTowns) {
-        outputTowns.push({
-          id: t.id,
-          islandX: t.islandX, islandY: t.islandY,
-          slot: t.islandSlot,
-          name: t.name,
-          points: t.points,
-          player: t.player ? t.player.name : 'Ghost Town',
-          alliance: t.player && t.player.alliance ? t.player.alliance.name : 'None',
-        });
-      }
-    }
+    const { islands: outputIslands, towns: outputTowns } = compileOceanSummarySnapshot({
+      oceanId,
+      towns,
+      alliances: dbAlliances,
+      islands
+    });
 
     return NextResponse.json({
       type: 'RawMapData',

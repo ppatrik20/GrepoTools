@@ -1,39 +1,24 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, hasPermission, PERMISSIONS } from '@/lib/auth/rbac';
+import {
+  requireTeamAccess,
+  PERMISSIONS,
+  AUDIT_ACTIONS
+} from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 
 export async function GET(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        members: true
-      }
+    const access = await requireTeamAccess(request, teamId, {
+      allowUnverified: true,
+      requiredPermission: PERMISSIONS.INVITES_MANAGE
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
-    }
-
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const membership = team.members.find(m => m.userId === auth.user.sub);
-    const isTeamAdmin = membership?.role === 'TEAM_ADMIN';
-    const canManageInvites = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.INVITES_MANAGE);
-
-    if (!canManageInvites) {
-      return NextResponse.json(
-        { error: 'Forbidden: Insufficient permissions to view invites' },
-        { status: 403 }
-      );
+    if (!access.authorized) {
+      return access.response;
     }
 
     const invites = await prisma.invite.findMany({
@@ -54,45 +39,18 @@ export async function GET(request, { params }) {
 }
 
 export async function POST(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        members: true
-      }
+    const access = await requireTeamAccess(request, teamId, {
+      requiredPermission: PERMISSIONS.INVITES_MANAGE
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!access.authorized) {
+      return access.response;
     }
 
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const membership = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !membership) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = membership?.role === 'TEAM_ADMIN';
-    const canInvite = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.INVITES_MANAGE);
-
-    // Must be Global Admin, Team Admin, or hold INVITES_MANAGE permission
-    if (!canInvite) {
-      return NextResponse.json(
-        { error: 'Forbidden: Team Administrator, Global Administrator, or INVITES_MANAGE capability required' },
-        { status: 403 }
-      );
-    }
+    const { team, isGlobalAdmin } = access;
 
     const body = await request.json().catch(() => ({}));
     const {
@@ -146,7 +104,7 @@ export async function POST(request, { params }) {
     }
 
     // Check if the inviter is attempting to invite themselves
-    if (auth.user.username && auth.user.username.toLowerCase() === trimmedPlayerName.toLowerCase()) {
+    if (access.user.username && access.user.username.toLowerCase() === trimmedPlayerName.toLowerCase()) {
       return NextResponse.json(
         {
           error: `You cannot invite yourself to a team you are already managing.`
@@ -217,7 +175,7 @@ export async function POST(request, { params }) {
         worldId: team.worldId,
         role,
         targetPlayerName: trimmedPlayerName,
-        createdById: auth.user.sub,
+        createdById: access.user.sub,
         customRoleIds: validCustomRoleIds,
         maxUses: Number(maxUses) || 1,
         expiresAt
@@ -225,12 +183,12 @@ export async function POST(request, { params }) {
     });
 
     await logAuditEvent({
-      userId: auth.user.sub,
-      actorUsername: auth.user.username,
-      action: 'INVITE_CREATED',
+      userId: access.user.sub,
+      actorUsername: access.user.username,
+      action: AUDIT_ACTIONS.INVITE_CREATED,
       targetResource: `team:${teamId}`,
-      ipAddress: auth.ipAddress,
-      userAgent: auth.userAgent,
+      ipAddress: access.ipAddress,
+      userAgent: access.userAgent,
       status: 'SUCCESS',
       details: {
         inviteId: invite.id,

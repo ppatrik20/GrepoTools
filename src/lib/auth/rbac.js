@@ -7,8 +7,62 @@ import {
   hasPermission
 } from './tokens.js';
 import { verifyAdminBearerAuth } from '../auth.js';
+import { prisma } from '../prisma.js';
+import { resolveTeamAuthority } from '../team/teamAuthority.js';
 
 export { PERMISSIONS, ALL_PERMISSIONS, hasPermission };
+
+export const AUDIT_ACTIONS = Object.freeze({
+  AUTH_LOGIN_SUCCESS: 'AUTH_LOGIN_SUCCESS',
+  AUTH_LOGIN_FAILURE: 'AUTH_LOGIN_FAILURE',
+  AUTH_LOGIN_FAILED: 'AUTH_LOGIN_FAILURE',
+  AUTH_ACCOUNT_LOCKED: 'AUTH_ACCOUNT_LOCKED',
+  AUTH_LOGIN_BLOCKED_LOCKOUT: 'AUTH_LOGIN_BLOCKED_LOCKOUT',
+  AUTH_REGISTER: 'AUTH_REGISTER',
+  USER_REGISTERED_VIA_INVITE: 'USER_REGISTERED_VIA_INVITE',
+  AUTH_REFRESH: 'AUTH_REFRESH',
+  AUTH_TOKEN_ROTATED: 'AUTH_TOKEN_ROTATED',
+  AUTH_TOKEN_REUSE_DETECTED: 'AUTH_TOKEN_REUSE_DETECTED',
+  AUTH_LOGOUT: 'AUTH_LOGOUT',
+  TOWN_VERIFIED: 'TOWN_VERIFIED',
+  TOWN_VERIFY_ATTEMPT: 'TOWN_VERIFY_ATTEMPT',
+  TOWN_VERIFICATION_CHECK_FAILED: 'TOWN_VERIFICATION_CHECK_FAILED',
+  TEAM_CREATED: 'TEAM_CREATED',
+  TEAM_DELETED: 'TEAM_DELETED',
+  TEAM_MEMBER_UPDATED: 'TEAM_MEMBER_UPDATED',
+  TEAM_MEMBER_REMOVED: 'TEAM_MEMBER_REMOVED',
+  TEAM_MEMBER_LEFT: 'TEAM_MEMBER_LEFT',
+  TEAM_MEMBER_KICKED: 'TEAM_MEMBER_KICKED',
+  ROLE_CREATED: 'ROLE_CREATED',
+  ROLE_UPDATED: 'ROLE_UPDATED',
+  ROLE_DELETED: 'ROLE_DELETED',
+  CUSTOM_ROLE_CREATED: 'CUSTOM_ROLE_CREATED',
+  CUSTOM_ROLE_UPDATED: 'CUSTOM_ROLE_UPDATED',
+  CUSTOM_ROLE_DELETED: 'CUSTOM_ROLE_DELETED',
+  INVITE_CREATED: 'INVITE_CREATED',
+  INVITE_REVOKED: 'INVITE_REVOKED',
+  WORLD_SYNC_TRIGGERED: 'WORLD_SYNC_TRIGGERED',
+  WORLD_CREATED: 'WORLD_CREATED',
+  WORLD_UPDATED: 'WORLD_UPDATED',
+  WORLD_DELETED: 'WORLD_DELETED'
+});
+
+/**
+ * Canonical Prisma include clause for hydrating a user's team memberships
+ * with world metadata and custom role assignments.
+ */
+export const TEAM_MEMBERSHIP_INCLUDE = Object.freeze({
+  team: {
+    include: {
+      world: true
+    }
+  },
+  customRoles: {
+    include: {
+      customRole: true
+    }
+  }
+});
 
 /**
  * Descriptive definitions of each tactical RBAC capability.
@@ -165,10 +219,13 @@ export function buildTeamMembershipPayload(memberships) {
       teamId: m.teamId,
       teamName: m.team?.name || 'Unknown Team',
       worldId: m.worldId,
+      worldName: m.team?.world?.name || m.world?.name || m.worldId,
       role: m.role,
       playerId: m.playerId,
       playerName: m.playerName,
+      verificationCode: m.verificationCode ?? null,
       status: m.verificationStatus,
+      verifiedAt: m.verifiedAt ?? null,
       permissions: Array.from(permSet),
       customRoles
     };
@@ -412,5 +469,218 @@ export async function requireAuth(request, options = {}) {
     member,
     ipAddress,
     userAgent
+  };
+}
+
+/**
+ * Server-Side Team Authority Guard for Team Route Handlers.
+ * Evaluates live database membership, verification status, and custom role capabilities
+ * rather than relying solely on potentially stale JWT claims.
+ *
+ * @param {Request} request
+ * @param {string} teamId
+ * @param {object} [options]
+ * @param {boolean} [options.allowUnverified=false]
+ * @param {boolean} [options.allowLegacyAdminBearer=true]
+ * @param {boolean} [options.requireAdmin=false]
+ * @param {string} [options.requiredPermission]
+ * @param {object} [options.include]
+ * @returns {Promise<{ authorized: boolean, user?: object, team?: object, callerMember?: object, isGlobalAdmin?: boolean, isTeamAdmin?: boolean, authority?: object, response?: NextResponse, ipAddress: string, userAgent: string }>}
+ */
+export async function requireTeamAccess(request, teamId, options = {}) {
+  const {
+    allowUnverified = false,
+    allowLegacyAdminBearer = true,
+    requireAdmin = false,
+    requiredPermission = null,
+    include = {}
+  } = options;
+
+  const auth = await requireAuth(request, {
+    allowUnverified: true,
+    allowLegacyAdminBearer
+  });
+
+  if (!auth.authorized) {
+    return auth;
+  }
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    include: {
+      members: {
+        include: {
+          user: {
+            select: { id: true, username: true, globalRole: true, isActive: true }
+          },
+          customRoles: {
+            include: {
+              customRole: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'asc' }
+      },
+      ...include
+    }
+  });
+
+  if (!team) {
+    return {
+      authorized: false,
+      user: auth.user,
+      ipAddress: auth.ipAddress,
+      userAgent: auth.userAgent,
+      response: NextResponse.json(
+        { error: 'Team not found', code: 'TEAM_NOT_FOUND' },
+        { status: 404 }
+      )
+    };
+  }
+
+  const membersList = Array.isArray(team.members) ? team.members : [];
+  const callerMember = membersList.find(
+    m => m.userId === auth.user.sub || m.userId === auth.user.id
+  ) || null;
+
+  const jwtTeams = Array.isArray(auth.user?.teams) ? auth.user.teams : [];
+  const jwtTeamMember = jwtTeams.find(t => t.teamId === teamId || t.membershipId === teamId) || null;
+
+  // Hydrate live permissions from DB callerMember.customRoles (falling back to direct permissions on mock fixtures)
+  const livePermSet = new Set();
+  if (callerMember) {
+    if (Array.isArray(callerMember.customRoles)) {
+      const [normalized] = buildTeamMembershipPayload([
+        { ...callerMember, teamId: team.id || teamId, worldId: team.worldId }
+      ]);
+      for (const p of normalized?.permissions || []) {
+        livePermSet.add(p);
+      }
+    } else if (Array.isArray(callerMember.permissions)) {
+      for (const p of callerMember.permissions) {
+        livePermSet.add(p);
+      }
+    } else if (Array.isArray(jwtTeamMember?.permissions)) {
+      for (const p of jwtTeamMember.permissions) {
+        livePermSet.add(p);
+      }
+    }
+
+    if (callerMember.role === 'TEAM_ADMIN') {
+      for (const p of ALL_PERMISSIONS) livePermSet.add(p);
+      livePermSet.add('*');
+    }
+  }
+
+  const hydratedUser = {
+    ...auth.user,
+    permissions: auth.user.globalRole === 'GLOBAL_ADMIN' ? ['*'] : [],
+    teams: callerMember
+      ? [
+          {
+            teamId: team.id || teamId,
+            worldId: team.worldId,
+            role: callerMember.role || 'TEAM_MEMBER',
+            status: callerMember.verificationStatus ?? jwtTeamMember?.status ?? 'VERIFIED',
+            permissions: Array.from(livePermSet)
+          }
+        ]
+      : []
+  };
+
+  const baseAuthority = resolveTeamAuthority(hydratedUser, team.worldId, team);
+  const authority = Object.freeze({
+    ...baseAuthority,
+    callerMember,
+    verificationStatus: callerMember?.verificationStatus ?? jwtTeamMember?.status ?? null,
+    hasCapability(permissionKey) {
+      if (!permissionKey) return true;
+      if (baseAuthority.isGlobalAdmin || baseAuthority.isTeamAdmin) return true;
+      if (baseAuthority.userPermissions.includes('*')) return true;
+      return baseAuthority.userPermissions.includes(permissionKey);
+    }
+  });
+
+  if (!authority.isGlobalAdmin && !callerMember) {
+    return {
+      authorized: false,
+      user: auth.user,
+      team,
+      callerMember: null,
+      ipAddress: auth.ipAddress,
+      userAgent: auth.userAgent,
+      response: NextResponse.json(
+        { error: 'Forbidden: You are not a member of this team', code: 'TEAM_MEMBER_REQUIRED' },
+        { status: 403 }
+      )
+    };
+  }
+
+  const rawVerificationStatus = callerMember?.verificationStatus !== undefined
+    ? callerMember.verificationStatus
+    : jwtTeamMember?.status;
+  const isVerifiedMember = rawVerificationStatus === undefined
+    ? true
+    : rawVerificationStatus === 'VERIFIED';
+
+  if (!authority.isGlobalAdmin && !allowUnverified && !isVerifiedMember) {
+    return {
+      authorized: false,
+      user: auth.user,
+      team,
+      callerMember,
+      ipAddress: auth.ipAddress,
+      userAgent: auth.userAgent,
+      response: NextResponse.json(
+        { error: 'In-game town rename verification required', code: 'VERIFICATION_REQUIRED' },
+        { status: 403 }
+      )
+    };
+  }
+
+  if (requireAdmin && !authority.isTeamAdmin) {
+    return {
+      authorized: false,
+      user: auth.user,
+      team,
+      callerMember,
+      ipAddress: auth.ipAddress,
+      userAgent: auth.userAgent,
+      response: NextResponse.json(
+        { error: 'Forbidden: Team Administrator role required', code: 'TEAM_ADMIN_REQUIRED' },
+        { status: 403 }
+      )
+    };
+  }
+
+  if (requiredPermission && !authority.hasCapability(requiredPermission)) {
+    return {
+      authorized: false,
+      user: auth.user,
+      team,
+      callerMember,
+      ipAddress: auth.ipAddress,
+      userAgent: auth.userAgent,
+      response: NextResponse.json(
+        {
+          error: `Forbidden: Team Administrator or ${requiredPermission} capability required`,
+          code: 'INSUFFICIENT_PERMISSIONS',
+          requiredPermission
+        },
+        { status: 403 }
+      )
+    };
+  }
+
+  return {
+    authorized: true,
+    user: auth.user,
+    team,
+    callerMember,
+    isGlobalAdmin: authority.isGlobalAdmin,
+    isTeamAdmin: authority.isTeamAdmin,
+    authority,
+    ipAddress: auth.ipAddress,
+    userAgent: auth.userAgent
   };
 }

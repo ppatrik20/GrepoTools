@@ -3,9 +3,10 @@
 @theme {
   --color-bg-dark: #0b1120;
   --color-bg-card: rgba(15, 23, 42, 0.75);
-  --color-surface-base: #0b1120;
-  --color-surface-card: rgba(15, 23, 42, 0.75);
-  --color-surface-elevated: rgba(22, 34, 60, 0.85);
+  --color-surface-void: #05080e;
+  --color-surface-base: #080d15;
+  --color-surface-card: #0e1522;
+  --color-surface-elevated: #141d2e;
   --color-surface-hover: rgba(30, 48, 80, 0.6);
   --color-surface-overlay: rgba(11, 17, 32, 0.85);
   --color-border-subtle: rgba(255, 255, 255, 0.08);
@@ -18,10 +19,16 @@
   --color-success: #10b981;
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
+  --color-spartan-gold: #d4af37;
+  --color-corinthian-bronze: #cd7f32;
   --color-tactical-gold: #f59e0b;
+  --color-tactical-amber: #f59e0b;
   --color-tactical-emerald: #10b981;
   --color-tactical-crimson: #ef4444;
+  --color-tactical-aegean: #3b82f6;
+  --color-tactical-phantom: #06b6d4;
   --color-tactical-cyan: #06b6d4;
+  --color-tactical-mythic: #a855f7;
   --font-sans: var(--font-outfit), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-mono), monospace;
 }
@@ -150,11 +157,22 @@ a:hover {
   background: rgba(11, 17, 32, 0.85);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 0.5rem 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
   border-radius: 10px;
   font-family: inherit;
   font-size: 0.875rem;
   transition: var(--transition);
+}
+
+.input-field.pl-9 {
+  padding-left: 2.5rem;
+}
+
+.input-field.pl-10 {
+  padding-left: 2.625rem;
 }
 
 .input-field:focus {

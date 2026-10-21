@@ -1,47 +1,25 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, hasPermission, PERMISSIONS } from '@/lib/auth/rbac';
+import {
+  requireTeamAccess,
+  PERMISSIONS,
+  AUDIT_ACTIONS
+} from '@/lib/auth/rbac';
 import { logAuditEvent } from '@/lib/auth/audit';
 
 export async function PUT(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId, memberId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        members: true
-      }
+    const access = await requireTeamAccess(request, teamId, {
+      requiredPermission: PERMISSIONS.MEMBERS_MANAGE
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!access.authorized) {
+      return access.response;
     }
 
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const callerMember = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !callerMember) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = callerMember?.role === 'TEAM_ADMIN';
-    const canManageMembers = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.MEMBERS_MANAGE);
-
-    if (!canManageMembers) {
-      return NextResponse.json(
-        { error: 'Forbidden: Team Administrator or MEMBERS_MANAGE capability required' },
-        { status: 403 }
-      );
-    }
+    const { isGlobalAdmin, isTeamAdmin } = access;
 
     const targetMember = await prisma.teamMember.findFirst({
       where: {
@@ -170,12 +148,12 @@ export async function PUT(request, { params }) {
     });
 
     await logAuditEvent({
-      userId: auth.user.sub,
-      actorUsername: auth.user.username,
-      action: 'TEAM_MEMBER_UPDATED',
+      userId: access.user.sub,
+      actorUsername: access.user.username,
+      action: AUDIT_ACTIONS.TEAM_MEMBER_UPDATED,
       targetResource: `team:${teamId}:member:${memberId}`,
-      ipAddress: auth.ipAddress,
-      userAgent: auth.userAgent,
+      ipAddress: access.ipAddress,
+      userAgent: access.userAgent,
       status: 'SUCCESS',
       details: {
         memberId,
@@ -199,24 +177,18 @@ export async function PUT(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
-  const auth = await requireAuth(request, { allowUnverified: true });
-  if (!auth.authorized) {
-    return auth.response;
-  }
-
   try {
     const { id: teamId, memberId } = await params;
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        members: true
-      }
+    const access = await requireTeamAccess(request, teamId, {
+      allowUnverified: true
     });
 
-    if (!team) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+    if (!access.authorized) {
+      return access.response;
     }
+
+    const { isGlobalAdmin, isTeamAdmin, callerMember, authority } = access;
 
     const targetMember = await prisma.teamMember.findFirst({
       where: {
@@ -229,24 +201,21 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Team member not found' }, { status: 404 });
     }
 
-    const isGlobalAdmin = auth.user.globalRole === 'GLOBAL_ADMIN';
-    const callerMember = team.members.find(m => m.userId === auth.user.sub);
-
-    if (!isGlobalAdmin && !callerMember) {
-      return NextResponse.json(
-        { error: 'Forbidden: You are not a member of this team' },
-        { status: 403 }
-      );
-    }
-
-    const isTeamAdmin = callerMember?.role === 'TEAM_ADMIN';
-    const isSelfLeave = targetMember.userId === auth.user.sub;
-    const canManageMembers = isGlobalAdmin || isTeamAdmin || hasPermission(auth, teamId, PERMISSIONS.MEMBERS_MANAGE);
+    const isSelfLeave = targetMember.userId === access.user.sub;
+    const canManageMembers = authority.hasCapability(PERMISSIONS.MEMBERS_MANAGE);
 
     // Caller must either be leaving themselves or hold member management rights
     if (!isSelfLeave && !canManageMembers) {
       return NextResponse.json(
         { error: 'Forbidden: Team Administrator or MEMBERS_MANAGE capability required to remove members' },
+        { status: 403 }
+      );
+    }
+
+    // If not self-leave, require verification when verificationStatus is UNVERIFIED
+    if (!isSelfLeave && !isGlobalAdmin && callerMember?.verificationStatus === 'UNVERIFIED') {
+      return NextResponse.json(
+        { error: 'In-game town rename verification required', code: 'VERIFICATION_REQUIRED' },
         { status: 403 }
       );
     }
@@ -297,12 +266,12 @@ export async function DELETE(request, { params }) {
     }
 
     await logAuditEvent({
-      userId: auth.user.sub,
-      actorUsername: auth.user.username,
-      action: isSelfLeave ? 'TEAM_MEMBER_LEFT' : 'TEAM_MEMBER_KICKED',
+      userId: access.user.sub,
+      actorUsername: access.user.username,
+      action: isSelfLeave ? AUDIT_ACTIONS.TEAM_MEMBER_LEFT : AUDIT_ACTIONS.TEAM_MEMBER_KICKED,
       targetResource: `team:${teamId}:member:${memberId}`,
-      ipAddress: auth.ipAddress,
-      userAgent: auth.userAgent,
+      ipAddress: access.ipAddress,
+      userAgent: access.userAgent,
       status: 'SUCCESS',
       details: {
         memberId,
