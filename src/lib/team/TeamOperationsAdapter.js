@@ -262,5 +262,97 @@ export const TeamOperationsAdapter = {
       throw new Error(data.error || 'Failed to revoke invitation');
     }
     return data;
+  },
+
+  /**
+   * Loads the active world endgame state and team war room projects.
+   */
+  async loadEndgameState({ teamId, fetchImpl = fetch }) {
+    const res = await fetchImpl(`/api/teams/${encodeURIComponent(teamId)}/endgame`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to load endgame state');
+    }
+    return data;
+  },
+
+  /**
+   * Upserts a world wonder project for the team.
+   */
+  async updateWonderProject({ teamId, projectData, fetchImpl = fetch }) {
+    const res = await fetchImpl(`/api/teams/${encodeURIComponent(teamId)}/endgame`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'UPSERT_WONDER_PROJECT', ...projectData })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update wonder project');
+    }
+    return data;
+  },
+
+  /**
+   * Records resource or favor contribution towards a wonder stage.
+   */
+  async recordWonderContribution({ teamId, contributionData, fetchImpl = fetch }) {
+    const res = await fetchImpl(`/api/teams/${encodeURIComponent(teamId)}/endgame`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'ADD_WONDER_CONTRIBUTION', ...contributionData })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to record wonder contribution');
+    }
+    return data;
+  },
+
+  /**
+   * Updates operative vacation status or alliance join date.
+   */
+  async updateMemberEndgameStatus({ teamId, memberData, fetchImpl = fetch }) {
+    const res = await fetchImpl(`/api/teams/${encodeURIComponent(teamId)}/endgame`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'UPDATE_MEMBER_STATUS', ...memberData })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update operative endgame status');
+    }
+    return data;
+  },
+
+  /**
+   * Toggles valid island status for domination war room.
+   */
+  async toggleDominationIsland({ teamId, islandData, fetchImpl = fetch }) {
+    const res = await fetchImpl(`/api/teams/${encodeURIComponent(teamId)}/endgame`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'TOGGLE_DOMINATION_ISLAND', ...islandData })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to toggle domination island');
+    }
+    return data;
+  },
+
+  /**
+   * Updates an Olympus temple garrison, shield, or portal state.
+   */
+  async updateTempleState({ teamId, templeData, fetchImpl = fetch }) {
+    const res = await fetchImpl(`/api/teams/${encodeURIComponent(teamId)}/endgame`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'UPSERT_TEMPLE_STATE', ...templeData })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update temple state');
+    }
+    return data;
   }
 };

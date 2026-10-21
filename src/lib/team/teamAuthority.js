@@ -22,6 +22,8 @@ export function resolveTeamAuthority(user, activeWorldId, team = null) {
       canManageMembers: false,
       canManageInvites: false,
       canManageRoles: false,
+      canCoordinateEndgame: false,
+      canManageWonderLogistics: false,
       teamId: null
     });
   }
@@ -65,6 +67,8 @@ export function resolveTeamAuthority(user, activeWorldId, team = null) {
     canManageMembers: isTeamAdmin || hasWildcard || userPermissions.includes('MEMBERS_MANAGE'),
     canManageInvites: isTeamAdmin || hasWildcard || userPermissions.includes('INVITES_MANAGE'),
     canManageRoles: isTeamAdmin || hasWildcard || userPermissions.includes('ROLES_MANAGE'),
+    canCoordinateEndgame: isTeamAdmin || hasWildcard || userPermissions.includes('ENDGAME_STRATEGIST'),
+    canManageWonderLogistics: isTeamAdmin || hasWildcard || userPermissions.includes('WONDER_QUARTERMASTER'),
     teamId: membership?.teamId || team?.id || null
   });
 }

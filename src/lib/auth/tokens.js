@@ -23,6 +23,11 @@ export const PERMISSIONS = Object.freeze({
   GHOST_RADAR_RESERVE: 'GHOST_RADAR_RESERVE'
 });
 
+export const ENDGAME_PERMISSIONS = Object.freeze({
+  ENDGAME_STRATEGIST: 'ENDGAME_STRATEGIST',
+  WONDER_QUARTERMASTER: 'WONDER_QUARTERMASTER'
+});
+
 export const ALL_PERMISSIONS = Object.freeze(Object.values(PERMISSIONS));
 
 /**

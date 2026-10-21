@@ -798,7 +798,7 @@ export function getTacticalLayers(options = {}) {
         "text-halo-width": 2.5
       }
     },
-    // 34. Empty Colonization Slots Layer (Zoom >= 6.8)
+    // 34. Empty Colonization Slots & Wonder Spot Markers Layer (Zoom >= 6.8)
     {
       id: "empty-slots-sprites",
       type: "symbol",
@@ -806,7 +806,11 @@ export function getTacticalLayers(options = {}) {
       minzoom: 6.8,
       layout: {
         visibility: showEmptySlots ? 'visible' : 'none',
-        "icon-image": "empty_slot",
+        "icon-image": [
+          "match", ["get", "renderType"],
+          "wonder-spot", "wonder_spot",
+          "empty_slot"
+        ],
         "icon-size": [
           "interpolate", ["linear"], ["zoom"],
           6.8, 0.08,
@@ -819,7 +823,11 @@ export function getTacticalLayers(options = {}) {
         "icon-anchor": "center"
       },
       paint: {
-        "icon-color": "#64748b",
+        "icon-color": [
+          "match", ["get", "renderType"],
+          "wonder-spot", "#f59e0b",
+          "#64748b"
+        ],
         "icon-halo-color": "#0b101e",
         "icon-halo-width": 1.5,
         "icon-halo-blur": 0.5,

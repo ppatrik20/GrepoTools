@@ -14,6 +14,14 @@ model World {
   speed           Float     @default(1.0)
   unitSpeed       Float     @default(1.0)
   worldType       String    @default("siege") // "siege" or "revolt"
+  endgameType     EndgameType @default(NONE)
+  endgamePhase    EndgamePhase @default(PRE_ERA)
+  endgameSpeed    String    @default("NORMAL") // "SLOW" | "NORMAL" | "FAST"
+  worldStartedAt  DateTime?
+  eraStartedAt    DateTime?
+  lastStandStartedAt DateTime?
+  lastStandAllianceId Int?
+  dominationTargetPct Float   @default(40.0)
   isActive        Boolean   @default(true)
   lastSync        DateTime?
   lastSyncStatus  String?   // "SUCCESS" | "FAILURE"
@@ -38,6 +46,9 @@ model World {
   teamMemberships TeamMember[]
   invites         Invite[]
   syncLogs        SyncLog[]
+  wonderProjects  TeamWonderProject[]
+  validIslands    DominationValidIsland[]
+  templeStates    OlympusTempleState[]
 
   @@index([isActive])
 }
@@ -425,6 +436,7 @@ model Team {
   members     TeamMember[]
   invites     Invite[]
   customRoles TeamCustomRole[]
+  wonderProjects TeamWonderProject[]
 
   @@unique([worldId, name])
   @@index([worldId])
@@ -441,12 +453,16 @@ model TeamMember {
   verificationCode   String    // e.g. "GP-742918"
   verificationStatus String    @default("UNVERIFIED") // "UNVERIFIED" | "VERIFIED"
   verifiedAt         DateTime?
+  vacationModeActive Boolean   @default(false)
+  vacationUpdatedAt  DateTime?
+  allianceJoinedAt   DateTime?
   createdAt          DateTime  @default(now())
 
   team               Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   world              World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
   customRoles        TeamMemberRoleAssignment[]
+  wonderContributions TeamWonderContribution[]
 
   @@unique([teamId, userId])
   @@unique([worldId, playerId]) // One user claim per in-game player per world
@@ -548,3 +564,113 @@ model AuditLog {
 }
 
 
+
+
+enum EndgameType {
+  NONE
+  WORLD_WONDERS
+  DOMINATION
+  OLYMPUS
+}
+
+enum EndgamePhase {
+  PRE_ERA
+  SMALL_TEMPLES
+  LARGE_TEMPLES
+  ACTIVE_ERA
+  LAST_STAND
+  PEACE_COUNTDOWN
+  CLOSED
+}
+
+enum WonderType {
+  PYRAMID
+  GARDENS
+  STATUE
+  TEMPLE
+  MAUSOLEUM
+  COLOSSUS
+  LIGHTHOUSE
+}
+
+model TeamWonderProject {
+  id                      String     @id @default(uuid())
+  teamId                  String
+  worldId                 String
+  islandId                Int
+  wonderType              WonderType
+  allianceId              Int?
+  currentStage            Int        @default(0) // 0..10
+  isUnderExpansion        Boolean    @default(false)
+  expansionEndsAt         DateTime?
+  stageWoodCollected      Int        @default(0)
+  stageStoneCollected     Int        @default(0)
+  stageSilverCollected    Int        @default(0)
+  favorAccelerationsCount Int        @default(0)
+  notes                   String?
+  createdAt               DateTime   @default(now())
+  updatedAt               DateTime   @updatedAt
+
+  team                    Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  world                   World      @relation(fields: [worldId], references: [id], onDelete: Cascade)
+  contributions           TeamWonderContribution[]
+
+  @@unique([teamId, islandId])
+  @@index([worldId, wonderType])
+}
+
+model TeamWonderContribution {
+  id              String            @id @default(uuid())
+  projectId       String
+  memberId        String
+  resourceWood    Int               @default(0)
+  resourceStone   Int               @default(0)
+  resourceSilver  Int               @default(0)
+  favorCastsCount Int               @default(0)
+  status          String            @default("COMPLETED") // "PLEDGED" | "IN_TRANSIT" | "COMPLETED"
+  etaArrival      DateTime?
+  createdAt       DateTime          @default(now())
+
+  project         TeamWonderProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  member          TeamMember        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([memberId])
+}
+
+model DominationValidIsland {
+  id            String   @id @default(uuid())
+  worldId       String
+  islandKey     String   // "x_y" e.g. "500_500"
+  isValid       Boolean  @default(true)
+  isManuallySet Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  world         World    @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, islandKey])
+  @@index([worldId, isValid])
+}
+
+model OlympusTempleState {
+  id              String    @id @default(uuid())
+  worldId         String
+  islandKey       String    // "x_y"
+  templeTownId    Int?
+  templeCategory  String    // "SMALL" | "LARGE" | "PORTAL" | "OLYMPUS"
+  god             String?   // "zeus", "poseidon", etc.
+  buffCode        String?
+  buffName        String?
+  ownerAllianceId Int?
+  shieldEndsAt    DateTime?
+  nextJumpAt      DateTime?
+  garrisonJson    Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  world           World     @relation(fields: [worldId], references: [id], onDelete: Cascade)
+
+  @@unique([worldId, islandKey])
+  @@index([worldId, templeCategory])
+}

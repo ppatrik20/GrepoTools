@@ -3,6 +3,7 @@ import {
   extractTokensFromRequest,
   verifyAccessToken,
   PERMISSIONS,
+  ENDGAME_PERMISSIONS,
   ALL_PERMISSIONS,
   hasPermission
 } from './tokens.js';
@@ -10,7 +11,7 @@ import { verifyAdminBearerAuth } from '../auth.js';
 import { prisma } from '../prisma.js';
 import { resolveTeamAuthority } from '../team/teamAuthority.js';
 
-export { PERMISSIONS, ALL_PERMISSIONS, hasPermission };
+export { PERMISSIONS, ENDGAME_PERMISSIONS, ALL_PERMISSIONS, hasPermission };
 
 export const AUDIT_ACTIONS = Object.freeze({
   AUTH_LOGIN_SUCCESS: 'AUTH_LOGIN_SUCCESS',
@@ -124,6 +125,26 @@ export const PERMISSION_DEFINITIONS = Object.freeze([
   }
 ]);
 
+export const ENDGAME_PERMISSION_DEFINITIONS = Object.freeze([
+  {
+    key: ENDGAME_PERMISSIONS.ENDGAME_STRATEGIST,
+    label: 'Endgame Strategy',
+    category: 'Endgame',
+    description: 'Direct endgame war room, temple sieges, domination rosters, and portal routes.'
+  },
+  {
+    key: ENDGAME_PERMISSIONS.WONDER_QUARTERMASTER,
+    label: 'Wonder Logistics',
+    category: 'Endgame',
+    description: 'Coordinate world wonder resource convoys, favor boosts, and fortification audits.'
+  }
+]);
+
+export const ALL_TACTICAL_PERMISSIONS = Object.freeze([
+  ...PERMISSION_DEFINITIONS,
+  ...ENDGAME_PERMISSION_DEFINITIONS
+]);
+
 /**
  * Default seeded tactical custom roles for teams.
  */
@@ -172,6 +193,32 @@ export const DEFAULT_ROLE_TEMPLATES = Object.freeze([
     permissions: [
       PERMISSIONS.COALITIONS_MANAGE,
       PERMISSIONS.INVITES_MANAGE
+    ]
+  }
+]);
+
+export const ENDGAME_ROLE_TEMPLATES = Object.freeze([
+  {
+    name: 'Endgame Strategist',
+    description: 'Manages endgame war room, temple sieges, domination rosters, and portal routes.',
+    color: '#F59E0B',
+    icon: 'crown',
+    priority: 88,
+    permissions: [
+      ENDGAME_PERMISSIONS.ENDGAME_STRATEGIST,
+      PERMISSIONS.OPERATIONS_COORDINATE,
+      PERMISSIONS.PINS_MANAGE
+    ]
+  },
+  {
+    name: 'Wonder Quartermaster',
+    description: 'Coordinates world wonder resource transport convoys, favor boosts, and fortification audits.',
+    color: '#EC4899',
+    icon: 'compass',
+    priority: 80,
+    permissions: [
+      ENDGAME_PERMISSIONS.WONDER_QUARTERMASTER,
+      PERMISSIONS.OPERATIONS_COORDINATE
     ]
   }
 ]);

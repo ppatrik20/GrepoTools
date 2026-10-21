@@ -2,6 +2,12 @@ import { createRequire } from 'module';
 import { prisma } from './prisma.js';
 import { PALETTE } from './constants.js';
 import { pixelToLng, pixelToLat } from './map/coordProjection.js';
+import {
+  isLargeIslandType,
+  isSmallIslandType,
+  isTempleIslandType,
+  isColonizableIslandType
+} from './world/GrepolisDataParser.js';
 
 const require = createRequire(import.meta.url);
 const islandDefinitions = require('./map/island_definitions.json');
@@ -16,6 +22,29 @@ const TOWN_DIR_OFFSETS = {
   se: { x: 15, y: 13 }
 };
 const FREE_SLOT_OFFSET = { x: 18, y: 18 };
+
+const WONDER_SLOT_OFFSETS_BY_TYPE = {
+  1: { relX: 450, relY: 180 },
+  2: { relX: 520, relY: 150 },
+  3: { relX: 480, relY: 200 },
+  4: { relX: 460, relY: 160 },
+  5: { relX: 500, relY: 170 },
+  6: { relX: 510, relY: 190 },
+  7: { relX: 194, relY: 122 },
+  8: { relX: 480, relY: 170 },
+  9: { relX: 763, relY: 195 },
+  10: { relX: 500, relY: 180 },
+  37: { relX: 700, relY: 370 },
+  38: { relX: 520, relY: 220 },
+  39: { relX: 480, relY: 200 },
+  40: { relX: 758, relY: 268 },
+  41: { relX: 510, relY: 230 },
+  42: { relX: 490, relY: 210 },
+  43: { relX: 500, relY: 190 },
+  44: { relX: 476, relY: 138 },
+  45: { relX: 520, relY: 200 },
+  46: { relX: 490, relY: 180 }
+};
 
 /**
  * Calculates official town visual stage based on point thresholds
@@ -143,7 +172,24 @@ export function compileGeoJsonSnapshot({ towns = [], players = [], alliances = [
     const totalCapacity = (island.availableTowns || 0) + islandTowns.length;
     if (totalCapacity === 0) continue; // Skip purely decorative rocks
 
-    const isColonizable = (island.type >= 1 && island.type <= 16) || (island.type >= 37 && island.type <= 60);
+    const isLarge = isLargeIslandType(island.type);
+    const isSmall = isSmallIslandType(island.type);
+    const isTemple = isTempleIslandType(island.type);
+    const isColonizable = isColonizableIslandType(island.type);
+
+    let islandClass = 'ROCK';
+    if (island.type === 73) {
+      islandClass = 'OLYMPUS';
+    } else if ((island.type >= 67 && island.type <= 72) || island.type === 76 || island.type === 77) {
+      islandClass = 'TEMPLE_LARGE';
+    } else if (isTemple) {
+      islandClass = 'TEMPLE_SMALL';
+    } else if (isLarge) {
+      islandClass = 'LARGE';
+    } else if (isSmall) {
+      islandClass = 'SMALL';
+    }
+
     const isPopulatedRock = !isColonizable && islandTowns.length > 0;
     const shouldRenderIsland = isColonizable || isPopulatedRock;
     const isRock = !shouldRenderIsland;
@@ -173,6 +219,10 @@ export function compileGeoJsonSnapshot({ towns = [], players = [], alliances = [
       geometry: { type: 'Point', coordinates: [islandLng, islandLat] },
       properties: {
         renderType: isRock ? 'rock' : 'island',
+        islandClass,
+        isTemple,
+        isLarge,
+        isSmall,
         id: island.id,
         x: island.x,
         y: island.y,
@@ -188,6 +238,24 @@ export function compileGeoJsonSnapshot({ towns = [], players = [], alliances = [
         dominantAlliance: dominantAlliance || 'None'
       }
     });
+
+    // Project Wonder building spot on large 20-slot islands
+    if (isLarge) {
+      const wonderOffset = WONDER_SLOT_OFFSETS_BY_TYPE[island.type] || { relX: centerX, relY: Math.max(20, centerY - 60) };
+      const wonderPixelX = islandPixelX + wonderOffset.relX;
+      const wonderPixelY = islandPixelY + wonderOffset.relY;
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [pixelToLng(wonderPixelX), pixelToLat(wonderPixelY)] },
+        properties: {
+          renderType: 'wonder-spot',
+          islandId: island.id,
+          islandX: island.x,
+          islandY: island.y,
+          islandType: island.type
+        }
+      });
+    }
 
     // Map occupied slots
     const townSlotMap = {};
@@ -211,8 +279,9 @@ export function compileGeoJsonSnapshot({ towns = [], players = [], alliances = [
       };
     }
 
-    // Determine total slots on this island
-    const definedSlots = islandDef?.town_offsets || [];
+    // Determine total slots on this island (handling object offsets for temple islands 61..77)
+    const rawOffsets = islandDef?.town_offsets;
+    const definedSlots = Array.isArray(rawOffsets) ? rawOffsets : (rawOffsets ? Object.values(rawOffsets) : []);
     const maxOccupiedSlot = Math.max(-1, ...Object.keys(townSlotMap).map(Number));
     const totalSlotCount = definedSlots.length > 0
       ? definedSlots.length

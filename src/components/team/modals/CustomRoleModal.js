@@ -3,7 +3,9 @@
 import React from 'react';
 import { Award, X, Check } from 'lucide-react';
 import { AVAILABLE_ICONS, PRESET_COLORS } from '../constants';
-import { PERMISSION_DEFINITIONS } from '@/lib/auth/rbac';
+import { ALL_TACTICAL_PERMISSIONS, PERMISSION_DEFINITIONS } from '@/lib/auth/rbac';
+
+const DISPLAY_PERMISSIONS = ALL_TACTICAL_PERMISSIONS || PERMISSION_DEFINITIONS;
 
 export default function CustomRoleModal({
   isOpen,
@@ -150,12 +152,12 @@ export default function CustomRoleModal({
                 Assigned Capabilities
               </label>
               <span className="text-[11px] font-mono text-amber-400">
-                {rolePermissions.length} / {PERMISSION_DEFINITIONS.length} active
+                {rolePermissions.length} / {DISPLAY_PERMISSIONS.length} active
               </span>
             </div>
 
             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-              {PERMISSION_DEFINITIONS.map(def => {
+              {DISPLAY_PERMISSIONS.map(def => {
                 const isChecked = rolePermissions.includes(def.key);
                 return (
                   <div

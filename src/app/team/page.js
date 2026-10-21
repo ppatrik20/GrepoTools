@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import {
   Users, Shield, Crown, AlertCircle, CheckCircle2,
-  X, UserPlus, Award, Sparkles
+  X, UserPlus, Award, Sparkles, Castle
 } from 'lucide-react';
 import { resolveTeamAuthority } from '@/lib/team/teamAuthority';
 import { TeamOperationsAdapter } from '@/lib/team/TeamOperationsAdapter';
@@ -12,6 +12,7 @@ import TeamMembersTab from '@/components/team/tabs/TeamMembersTab';
 import TeamInvitesTab from '@/components/team/tabs/TeamInvitesTab';
 import TeamRolesTab from '@/components/team/tabs/TeamRolesTab';
 import TeamRoadmapTab from '@/components/team/tabs/TeamRoadmapTab';
+import TeamEndgameTab from '@/components/team/tabs/TeamEndgameTab';
 import MemberEditModal from '@/components/team/modals/MemberEditModal';
 import MemberKickModal from '@/components/team/modals/MemberKickModal';
 import CustomRoleModal from '@/components/team/modals/CustomRoleModal';
@@ -463,6 +464,18 @@ export default function TeamManagementPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab('endgame')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ${
+            activeTab === 'endgame'
+              ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Castle size={16} />
+          <span>Endgame War Room</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('roadmap')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ${
             activeTab === 'roadmap'
@@ -524,6 +537,14 @@ export default function TeamManagementPage() {
           openCreateRoleModal={openCreateRoleModal}
           openEditRoleModal={openEditRoleModal}
           setRoleToDelete={setRoleToDelete}
+        />
+      )}
+
+      {activeTab === 'endgame' && (
+        <TeamEndgameTab
+          team={team}
+          authority={authority}
+          activeWorldId={activeWorldId}
         />
       )}
 

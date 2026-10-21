@@ -49,7 +49,7 @@ describe('Team Authority Engine (teamAuthority.js)', () => {
     expect(authority.canManageRoles).toBe(true);
   });
 
-  it('resolves Team Member with specific capability grant (e.g. INVITES_MANAGE)', () => {
+  it('resolves Team Member with specific capability grant (e.g. INVITES_MANAGE, ENDGAME_STRATEGIST)', () => {
     const user = {
       id: 'usr_recruiter',
       username: 'Recruiter',
@@ -58,16 +58,18 @@ describe('Team Authority Engine (teamAuthority.js)', () => {
           teamId: 'team_alpha',
           worldId: 'hu119',
           role: 'TEAM_MEMBER',
-          permissions: ['INVITES_MANAGE']
+          permissions: ['INVITES_MANAGE', 'ENDGAME_STRATEGIST']
         }
       ]
     };
 
     const authority = resolveTeamAuthority(user, 'hu119');
+    expect(authority.canManageInvites).toBe(true);
+    expect(authority.canCoordinateEndgame).toBe(true);
+    expect(authority.canManageWonderLogistics).toBe(false);
     expect(authority.isGlobalAdmin).toBe(false);
     expect(authority.isTeamAdmin).toBe(false);
     expect(authority.effectiveRole).toBe('TEAM_MEMBER');
-    expect(authority.canManageInvites).toBe(true);
     expect(authority.canManageMembers).toBe(false);
     expect(authority.canManageRoles).toBe(false);
   });
@@ -246,5 +248,81 @@ describe('TeamOperationsAdapter', () => {
         fetchImpl: mockFetch
       })
     ).rejects.toThrow('Forbidden: Insufficient permissions');
+  });
+
+  it('coordinates endgame lifecycle: load, update wonder project, add contributions, and update temple state', async () => {
+    const mockFetch = vi.fn().mockImplementation(async (url, init) => {
+      if (url.includes('/api/teams/t1/endgame') && (!init || init.method === 'GET')) {
+        return {
+          ok: true,
+          json: async () => ({
+            worldId: 'hu119',
+            endgameType: 'WORLD_WONDERS',
+            endgamePhase: 'ACTIVE_ERA',
+            wonders: { projects: [] }
+          })
+        };
+      }
+
+      if (url.includes('/api/teams/t1/endgame') && init?.method === 'POST') {
+        const payload = JSON.parse(init.body);
+        return {
+          ok: true,
+          json: async () => ({ success: true, action: payload.action, received: payload })
+        };
+      }
+
+      return { ok: false, json: async () => ({ error: 'Not found' }) };
+    });
+
+    // 1. Load endgame state
+    const state = await TeamOperationsAdapter.loadEndgameState({ teamId: 't1', fetchImpl: mockFetch });
+    expect(state.endgameType).toBe('WORLD_WONDERS');
+    expect(state.endgamePhase).toBe('ACTIVE_ERA');
+
+    // 2. Update wonder project
+    const projRes = await TeamOperationsAdapter.updateWonderProject({
+      teamId: 't1',
+      projectData: { islandId: 105, wonderType: 'COLOSSUS', currentStage: 3 },
+      fetchImpl: mockFetch
+    });
+    expect(projRes.success).toBe(true);
+    expect(projRes.action).toBe('UPSERT_WONDER_PROJECT');
+
+    // 3. Record wonder contribution
+    const contribRes = await TeamOperationsAdapter.recordWonderContribution({
+      teamId: 't1',
+      contributionData: { projectId: 'p1', memberId: 'm1', resourceWood: 50000, favorCastsCount: 2 },
+      fetchImpl: mockFetch
+    });
+    expect(contribRes.success).toBe(true);
+    expect(contribRes.action).toBe('ADD_WONDER_CONTRIBUTION');
+
+    // 4. Update member endgame status
+    const statusRes = await TeamOperationsAdapter.updateMemberEndgameStatus({
+      teamId: 't1',
+      memberData: { memberId: 'm1', vacationModeActive: true },
+      fetchImpl: mockFetch
+    });
+    expect(statusRes.success).toBe(true);
+    expect(statusRes.action).toBe('UPDATE_MEMBER_STATUS');
+
+    // 5. Toggle domination island
+    const domRes = await TeamOperationsAdapter.toggleDominationIsland({
+      teamId: 't1',
+      islandData: { islandKey: '500_500', isValid: true },
+      fetchImpl: mockFetch
+    });
+    expect(domRes.success).toBe(true);
+    expect(domRes.action).toBe('TOGGLE_DOMINATION_ISLAND');
+
+    // 6. Update temple state
+    const templeRes = await TeamOperationsAdapter.updateTempleState({
+      teamId: 't1',
+      templeData: { islandKey: '450_550', templeCategory: 'LARGE', god: 'athena' },
+      fetchImpl: mockFetch
+    });
+    expect(templeRes.success).toBe(true);
+    expect(templeRes.action).toBe('UPSERT_TEMPLE_STATE');
   });
 });

@@ -15,7 +15,8 @@ import {
   unwrapTownPayload
 } from '../traveltime.js';
 
-import { COLONY_SHIP_SPEED, DEFAULT_UNIT_SPEED } from './units.js';
+import { COLONY_SHIP_SPEED, DEFAULT_UNIT_SPEED, getUnit } from './units.js';
+import { calculatePortalRouteTiming } from '../endgame/olympusEngine.js';
 
 // Grepolis game constants
 export const ANTI_TIMING_BUFFER_SECONDS = 10;
@@ -405,6 +406,79 @@ export function resolveRecallTargeting({
     movAttackerId,
     targetTown,
     originTown
+  };
+}
+
+/**
+ * Plans a multi-leg or direct Olympus portal assault/reinforcement operation.
+ * 
+ * @param {object} params
+ * @param {object} params.originTown { x, y, name, id }
+ * @param {object} params.targetTown { x, y, name, id }
+ * @param {object} [params.portalTemple] { x, y, name, id, portalActive }
+ * @param {string} params.unitType e.g. 'bireme', 'fast_transport_ship'
+ * @param {number} [params.worldSpeed=1]
+ * @param {number} [params.unitSpeed=1]
+ * @param {Date|string|number} params.targetLandingTime
+ * @returns {object} Timing schedule with anti-timing windows and one-way return warnings
+ */
+export function planPortalOperation({
+  originTown,
+  targetTown,
+  portalTemple,
+  unitType = 'bireme',
+  worldSpeed = 1,
+  unitSpeed = 1,
+  targetLandingTime,
+  hasAresLargeTemple = false
+}) {
+  const targetDate = resolveTargetDate(targetLandingTime);
+  const targetEpoch = targetDate.getTime();
+
+  const unit = getUnit(unitType) || { baseSpeed: 15 };
+  const baseSpeed = unit.baseSpeed || 15;
+
+  const directDist = calculateDistance(originTown.x, originTown.y, targetTown.x, targetTown.y);
+  const directOriginToOlympusSeconds = calculateTravelTimeSeconds(directDist, baseSpeed, worldSpeed, unitSpeed);
+
+  let originToPortalSeconds = 0;
+  if (portalTemple) {
+    const toPortalDist = calculateDistance(originTown.x, originTown.y, portalTemple.x, portalTemple.y);
+    originToPortalSeconds = calculateTravelTimeSeconds(toPortalDist, baseSpeed, worldSpeed, unitSpeed);
+  }
+
+  const route = calculatePortalRouteTiming({
+    originToPortalSeconds,
+    portalTeleportSeconds: 0,
+    directOriginToOlympusSeconds,
+    hasAresLargeTemple
+  });
+
+  const effectiveDirectSec = hasAresLargeTemple
+    ? Math.round(directOriginToOlympusSeconds / 1.15)
+    : directOriginToOlympusSeconds;
+
+  const directLaunchMs = targetEpoch - (effectiveDirectSec * 1000);
+  const portalLaunchMs = targetEpoch - (route.outboundViaPortalSeconds * 1000);
+
+  return {
+    ...route,
+    originTown,
+    targetTown,
+    portalTemple,
+    targetLandingTime: targetDate.toISOString(),
+    portalAvailable: Boolean(portalTemple),
+    directLaunchWindow: {
+      nominalLaunchTime: new Date(directLaunchMs).toISOString(),
+      windowStart: new Date(directLaunchMs - ANTI_TIMING_BUFFER_MS).toISOString(),
+      windowEnd: new Date(directLaunchMs + ANTI_TIMING_BUFFER_MS).toISOString()
+    },
+    portalLaunchWindow: portalTemple ? {
+      nominalLaunchTime: new Date(portalLaunchMs).toISOString(),
+      windowStart: new Date(portalLaunchMs - ANTI_TIMING_BUFFER_MS).toISOString(),
+      windowEnd: new Date(portalLaunchMs + ANTI_TIMING_BUFFER_MS).toISOString(),
+      oneWayReturnNotice: 'One-Way Portal Warning: Units dispatched through portal teleport instantly to the temple, but MUST sail back at normal speed once recalled!'
+    } : null
   };
 }
 

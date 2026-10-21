@@ -145,6 +145,28 @@ export function parseTowns(rows = [], validPlayerIds, worldId) {
 }
 
 /**
+ * Island classification helpers matching official Grepolis island taxonomy
+ */
+export function isLargeIslandType(type) {
+  const t = Number(type);
+  return (t >= 1 && t <= 10) || (t >= 37 && t <= 46);
+}
+
+export function isSmallIslandType(type) {
+  const t = Number(type);
+  return (t >= 11 && t <= 16) || (t >= 47 && t <= 60);
+}
+
+export function isTempleIslandType(type) {
+  const t = Number(type);
+  return t >= 61 && t <= 77;
+}
+
+export function isColonizableIslandType(type) {
+  return isLargeIslandType(type) || isSmallIslandType(type) || isTempleIslandType(type);
+}
+
+/**
  * Parses raw islands feed with spatial center distance bounds and populated coordinate filtering
  * File format: [id, x, y, type, towns, rPlus, rMinus]
  * 
@@ -173,8 +195,9 @@ export function parseIslands(rows = [], populatedCoords = new Set(), worldId, ma
     if (distSq > maxRadiusSq) continue;
 
     const availableTowns = parseInt(towns, 10) || 0;
-    // Omit uninhabited rock islands with 0 available towns unless an existing town sits there
-    if (availableTowns === 0 && !populatedCoords.has(`${x},${y}`)) continue;
+    const islandType = parseInt(type, 10) || 0;
+    // Omit uninhabited rock islands with 0 available towns unless an existing town sits there or it is an Olympus temple
+    if (availableTowns === 0 && !populatedCoords.has(`${x},${y}`) && !isTempleIslandType(islandType)) continue;
 
     seenIds.add(id);
     islands.push({
@@ -182,7 +205,7 @@ export function parseIslands(rows = [], populatedCoords = new Set(), worldId, ma
       worldId,
       x,
       y,
-      type: parseInt(type, 10) || 0,
+      type: islandType,
       availableTowns,
       resourcePlus: rPlus || '',
       resourceMinus: rMinus || ''
